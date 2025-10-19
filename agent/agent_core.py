@@ -152,15 +152,109 @@ List the specific actions needed."""
         return response
 
     async def _act(self, plan: Optional[str]) -> Dict[str, Any]:
-        """Act phase - execute actions."""
-        # Simplified: In a full implementation, this would parse the plan
-        # and execute actual tool calls
+        """Act phase - execute actions based on plan."""
+        if not plan:
+            return {
+                "action": "no_plan",
+                "result": "No plan provided",
+                "success": False,
+            }
 
-        return {
-            "action": "simulated",
-            "result": "Action executed (implementation simplified for demo)",
-            "success": True,
-        }
+        # Ask Ollama to generate a tool call based on the plan
+        # Build messages with tool execution context
+        messages = self.context.get_messages_for_llm()
+        messages.append({
+            "role": "user",
+            "content": f"""Based on this plan: {plan}
+
+Choose ONE tool to execute right now. Respond with a JSON object in this format:
+{{
+    "tool": "tool_name",
+    "arguments": {{
+        "param1": "value1",
+        "param2": "value2"
+    }},
+    "reasoning": "why this tool and these arguments"
+}}
+
+Available tools:
+- read_file(file_path, offset=None, limit=None)
+- write_file(file_path, content, create_backup=None)
+- edit_file(file_path, old_string, new_string, replace_all=False)
+- list_directory(directory=".", pattern=None)
+- grep(pattern, path=".", regex=False, case_insensitive=False, context_before=0, context_after=0, max_results=None, file_pattern=None)
+- glob(pattern, path=".", max_results=None)
+- find(name=None, path=".", file_type=None, max_depth=None)
+- bash(command, timeout=None, cwd=None, background=False)
+- web_fetch(url, timeout=None)
+- web_search(query, max_results=10)
+
+Respond ONLY with the JSON object, no other text."""
+        })
+
+        # Get tool call from Ollama
+        response = await self.ollama.chat(messages)
+        content = response.get("message", {}).get("content", "")
+
+        # Try to parse tool call from response
+        import json
+        import re
+
+        try:
+            # Extract JSON from response (in case there's extra text)
+            json_match = re.search(r'\{[\s\S]*\}', content)
+            if json_match:
+                tool_call = json.loads(json_match.group())
+
+                tool_name = tool_call.get("tool")
+                arguments = tool_call.get("arguments", {})
+                reasoning = tool_call.get("reasoning", "")
+
+                if not tool_name:
+                    return {
+                        "action": "parse_error",
+                        "result": "No tool name in response",
+                        "response": content,
+                        "success": False,
+                    }
+
+                # Execute the tool
+                if self.verbose:
+                    print(f"\n[Act] Executing: {tool_name}")
+                    print(f"[Act] Arguments: {arguments}")
+                    print(f"[Act] Reasoning: {reasoning}")
+
+                result = await self.tool_executor.execute_tool(tool_name, arguments)
+
+                return {
+                    "action": tool_name,
+                    "arguments": arguments,
+                    "reasoning": reasoning,
+                    "result": result,
+                    "success": result.get("success", False),
+                }
+
+            else:
+                return {
+                    "action": "no_tool_call",
+                    "result": "No JSON tool call found in response",
+                    "response": content,
+                    "success": False,
+                }
+
+        except json.JSONDecodeError as e:
+            return {
+                "action": "json_error",
+                "result": f"Failed to parse JSON: {str(e)}",
+                "response": content,
+                "success": False,
+            }
+        except Exception as e:
+            return {
+                "action": "error",
+                "result": f"Execution failed: {str(e)}",
+                "success": False,
+            }
 
     async def _observe(self, action_result: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """Observe phase - analyze results."""

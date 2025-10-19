@@ -1,7 +1,9 @@
 """Tool executor for MCP tools."""
 
 import httpx
+import json
 from typing import Any, Dict, List, Optional
+from httpx_sse import aconnect_sse
 
 
 class ToolExecutor:
@@ -16,6 +18,7 @@ class ToolExecutor:
         """
         self.mcp_server_url = mcp_server_url.rstrip("/")
         self.client = httpx.AsyncClient(timeout=120.0)
+        self._session_id = None
 
     async def execute_tool(
         self,
@@ -33,22 +36,67 @@ class ToolExecutor:
             Tool execution result
         """
         try:
-            # In a real implementation, this would call the MCP server
-            # For now, we'll simulate the response structure
-            # You would integrate with the actual MCP protocol here
-
-            return {
-                "tool": tool_name,
-                "arguments": arguments,
-                "result": {"message": "Tool execution simulated"},
-                "success": True,
+            # Build MCP tool call request
+            request_payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": tool_name,
+                    "arguments": arguments,
+                },
             }
+
+            # Make request to MCP server via SSE endpoint
+            response_data = None
+            async with aconnect_sse(
+                self.client,
+                "POST",
+                f"{self.mcp_server_url}/sse",
+                json=request_payload,
+            ) as event_source:
+                async for event in event_source.aiter_sse():
+                    # Parse SSE event data
+                    if event.data:
+                        response_data = json.loads(event.data)
+                        # Get the first response (tool result)
+                        break
+
+            # Parse response
+            if response_data and "result" in response_data:
+                result = response_data["result"]
+
+                # Check if tool execution was successful
+                if result.get("success", True):
+                    return {
+                        "tool": tool_name,
+                        "arguments": arguments,
+                        "result": result,
+                        "success": True,
+                    }
+                else:
+                    return {
+                        "tool": tool_name,
+                        "arguments": arguments,
+                        "error": result.get("error", "Unknown error"),
+                        "result": result,
+                        "success": False,
+                    }
+            else:
+                # Handle error response
+                error_msg = response_data.get("error", {}) if response_data else {}
+                return {
+                    "tool": tool_name,
+                    "arguments": arguments,
+                    "error": error_msg.get("message", "No response from MCP server"),
+                    "success": False,
+                }
 
         except Exception as e:
             return {
                 "tool": tool_name,
                 "arguments": arguments,
-                "error": str(e),
+                "error": f"Tool execution failed: {str(e)}",
                 "success": False,
             }
 
@@ -60,12 +108,38 @@ class ToolExecutor:
             List of tool names
         """
         try:
+            # Try to get tools from server info endpoint
             response = await self.client.get(f"{self.mcp_server_url}/")
             if response.status_code == 200:
                 data = response.json()
                 return data.get("tools", [])
+
+            # Fallback: try MCP protocol
+            request_payload = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/list",
+                "params": {},
+            }
+
+            async with aconnect_sse(
+                self.client,
+                "POST",
+                f"{self.mcp_server_url}/sse",
+                json=request_payload,
+            ) as event_source:
+                async for event in event_source.aiter_sse():
+                    if event.data:
+                        response_data = json.loads(event.data)
+                        if "result" in response_data:
+                            tools = response_data["result"].get("tools", [])
+                            return [tool.get("name") for tool in tools]
+                        break
+
             return []
+
         except Exception:
+            # Fallback to known tools if server is not available
             return [
                 "read_file",
                 "write_file",
@@ -75,6 +149,8 @@ class ToolExecutor:
                 "glob",
                 "find",
                 "bash",
+                "get_job_status",
+                "kill_job",
                 "web_fetch",
                 "web_search",
             ]
