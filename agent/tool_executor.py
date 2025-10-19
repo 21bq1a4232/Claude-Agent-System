@@ -3,11 +3,12 @@
 import httpx
 import json
 from typing import Any, Dict, List, Optional
-from httpx_sse import aconnect_sse
+from mcp.client.session import ClientSession
+from mcp.client.sse import sse_client
 
 
 class ToolExecutor:
-    """Executor for MCP tools via HTTP."""
+    """Executor for MCP tools via MCP SSE protocol."""
 
     def __init__(self, mcp_server_url: str = "http://localhost:8000"):
         """
@@ -17,8 +18,22 @@ class ToolExecutor:
             mcp_server_url: URL of the MCP server
         """
         self.mcp_server_url = mcp_server_url.rstrip("/")
-        self.client = httpx.AsyncClient(timeout=120.0)
-        self._session_id = None
+        self.session: Optional[ClientSession] = None
+        self._initialized = False
+
+    async def _ensure_initialized(self):
+        """Ensure MCP session is initialized."""
+        if not self._initialized:
+            try:
+                # Create SSE client and session
+                client_params = sse_client(url=f"{self.mcp_server_url}/sse")
+                async with client_params as (read, write):
+                    async with ClientSession(read, write) as session:
+                        await session.initialize()
+                        self.session = session
+                        self._initialized = True
+            except Exception as e:
+                raise Exception(f"Failed to initialize MCP client: {e}")
 
     async def execute_tool(
         self,
@@ -36,61 +51,22 @@ class ToolExecutor:
             Tool execution result
         """
         try:
-            # Build MCP tool call request
-            request_payload = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "tools/call",
-                "params": {
-                    "name": tool_name,
-                    "arguments": arguments,
-                },
-            }
+            # Connect to MCP server and execute tool
+            client_params = sse_client(url=f"{self.mcp_server_url}/sse")
+            async with client_params as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
 
-            # Make request to MCP server via SSE endpoint
-            response_data = None
-            async with aconnect_sse(
-                self.client,
-                "POST",
-                f"{self.mcp_server_url}/sse",
-                json=request_payload,
-            ) as event_source:
-                async for event in event_source.aiter_sse():
-                    # Parse SSE event data
-                    if event.data:
-                        response_data = json.loads(event.data)
-                        # Get the first response (tool result)
-                        break
+                    # Call the tool
+                    result = await session.call_tool(tool_name, arguments)
 
-            # Parse response
-            if response_data and "result" in response_data:
-                result = response_data["result"]
-
-                # Check if tool execution was successful
-                if result.get("success", True):
+                    # Return formatted result
                     return {
                         "tool": tool_name,
                         "arguments": arguments,
-                        "result": result,
+                        "result": result.content if hasattr(result, 'content') else result,
                         "success": True,
                     }
-                else:
-                    return {
-                        "tool": tool_name,
-                        "arguments": arguments,
-                        "error": result.get("error", "Unknown error"),
-                        "result": result,
-                        "success": False,
-                    }
-            else:
-                # Handle error response
-                error_msg = response_data.get("error", {}) if response_data else {}
-                return {
-                    "tool": tool_name,
-                    "arguments": arguments,
-                    "error": error_msg.get("message", "No response from MCP server"),
-                    "success": False,
-                }
 
         except Exception as e:
             return {
@@ -108,38 +84,19 @@ class ToolExecutor:
             List of tool names
         """
         try:
-            # Try to get tools from server info endpoint
-            response = await self.client.get(f"{self.mcp_server_url}/")
-            if response.status_code == 200:
-                data = response.json()
-                return data.get("tools", [])
+            # Connect to MCP server and list tools
+            client_params = sse_client(url=f"{self.mcp_server_url}/sse")
+            async with client_params as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
 
-            # Fallback: try MCP protocol
-            request_payload = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "tools/list",
-                "params": {},
-            }
+                    # List tools
+                    tools_result = await session.list_tools()
+                    return [tool.name for tool in tools_result.tools]
 
-            async with aconnect_sse(
-                self.client,
-                "POST",
-                f"{self.mcp_server_url}/sse",
-                json=request_payload,
-            ) as event_source:
-                async for event in event_source.aiter_sse():
-                    if event.data:
-                        response_data = json.loads(event.data)
-                        if "result" in response_data:
-                            tools = response_data["result"].get("tools", [])
-                            return [tool.get("name") for tool in tools]
-                        break
-
-            return []
-
-        except Exception:
+        except Exception as e:
             # Fallback to known tools if server is not available
+            print(f"Warning: Could not list tools from MCP server: {e}")
             return [
                 "read_file",
                 "write_file",
@@ -156,5 +113,7 @@ class ToolExecutor:
             ]
 
     async def close(self) -> None:
-        """Close the HTTP client."""
-        await self.client.aclose()
+        """Close the MCP session."""
+        if self.session:
+            # Session cleanup handled by context manager
+            pass

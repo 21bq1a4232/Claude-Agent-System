@@ -4,7 +4,7 @@ import os
 import yaml
 from pathlib import Path
 from typing import Any, Dict, Optional
-from fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP
 
 from mcp_server.tools import FileTools, SearchTools, ShellTools, WebTools
 from mcp_server.permissions import PermissionManager
@@ -267,16 +267,23 @@ class MCPServer:
 
         self.logger.info(f"Registered {len(self.mcp._tool_manager._tools)} MCP tools")
 
+    def get_asgi_app(self):
+        """Get the ASGI application for the MCP server."""
+        # Get the SSE app from FastMCP
+        app = self.mcp.sse_app()
+        return app
+
     def run_server(self, host: str = "0.0.0.0", port: int = 8000):
-        """Run the MCP server using FastMCP's built-in SSE server."""
-        self.logger.info(f"Starting FastMCP SSE server on {host}:{port}")
+        """Run the MCP server using uvicorn."""
+        import uvicorn
 
-        # Configure host and port via settings
-        self.mcp.settings.host = host
-        self.mcp.settings.port = port
+        self.logger.info(f"Starting MCP SSE server on {host}:{port}")
 
-        # FastMCP.run() is synchronous, not async
-        self.mcp.run(transport="sse")
+        # Get the ASGI app
+        app = self.get_asgi_app()
+
+        # Run with uvicorn
+        uvicorn.run(app, host=host, port=port)
 
 
 def create_server(config_dir: str = "config") -> MCPServer:
