@@ -271,8 +271,12 @@ class MCPServer:
         """Run the MCP server using FastMCP's built-in SSE server."""
         self.logger.info(f"Starting FastMCP SSE server on {host}:{port}")
 
+        # Configure host and port via settings
+        self.mcp.settings.host = host
+        self.mcp.settings.port = port
+
         # FastMCP handles the server internally
-        await self.mcp.run_sse_async(host=host, port=port)
+        await self.mcp.run_sse_async()
 
 
 def create_server(config_dir: str = "config") -> MCPServer:
