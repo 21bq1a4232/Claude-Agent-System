@@ -42,15 +42,20 @@ def load_config(config_dir: str = "config") -> dict:
 
 
 async def check_mcp_server(url: str = "http://localhost:8000") -> bool:
-    """Check if MCP server is running."""
+    """Check if MCP server is running by testing SSE endpoint."""
     import httpx
 
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.get(f"{url}/health", timeout=2.0)
-            return response.status_code == 200
-    except Exception:
+            # Try to connect to SSE endpoint (will return 405 if server is up but wrong method)
+            response = await client.get(f"{url}/sse", timeout=2.0)
+            # Any response (even error) means server is running
+            return True
+    except httpx.ConnectError:
         return False
+    except Exception:
+        # Server responded (even with error) = it's running
+        return True
 
 
 async def main() -> int:

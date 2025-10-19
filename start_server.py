@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Standalone MCP Server - Run this separately from the agent."""
 
-import uvicorn
+import asyncio
 import sys
 from pathlib import Path
 
@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from mcp_server.server import create_server
 
 
-def main():
+async def main_async():
     """Start the MCP server standalone."""
     print("=" * 70)
     print("MCP Server - Claude Agent System")
@@ -20,31 +20,21 @@ def main():
     print("Starting MCP server on http://localhost:8000")
     print()
     print("Endpoints:")
-    print("  - Health check:  http://localhost:8000/health")
-    print("  - Server info:   http://localhost:8000/")
-    print("  - MCP endpoint:  http://localhost:8000/sse")
+    print("  - MCP SSE endpoint:  http://localhost:8000/sse")
     print()
     print("Press Ctrl+C to stop")
     print("=" * 70)
     print()
 
-    # Create server
+    # Create and run server
     server = create_server(config_dir="config")
-    app = server.get_app()
-
-    # Run with verbose logging
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8000,
-        log_level="info",
-        access_log=True,  # Log all requests
-    )
+    await server.run_server(host="0.0.0.0", port=8000)
 
 
-if __name__ == "__main__":
+def main():
+    """Entry point."""
     try:
-        main()
+        asyncio.run(main_async())
     except KeyboardInterrupt:
         print("\n\nServer stopped by user")
         sys.exit(0)
@@ -53,3 +43,7 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

@@ -5,9 +5,6 @@ import yaml
 from pathlib import Path
 from typing import Any, Dict, Optional
 from fastmcp import FastMCP
-from starlette.routing import Route
-from starlette.responses import JSONResponse
-from datetime import datetime
 
 from mcp_server.tools import FileTools, SearchTools, ShellTools, WebTools
 from mcp_server.permissions import PermissionManager
@@ -270,45 +267,12 @@ class MCPServer:
 
         self.logger.info(f"Registered {len(self.mcp._tool_manager._tools)} MCP tools")
 
-    def get_app(self):
-        """Get the Starlette app with custom routes."""
+    async def run_server(self, host: str = "0.0.0.0", port: int = 8000):
+        """Run the MCP server using FastMCP's built-in SSE server."""
+        self.logger.info(f"Starting FastMCP SSE server on {host}:{port}")
 
-        # Define custom routes
-        async def health_check(request):
-            """Health check endpoint."""
-            return JSONResponse(
-                content={
-                    "status": "healthy",
-                    "service": "claude-agent-mcp-server",
-                    "timestamp": datetime.utcnow().isoformat(),
-                },
-                status_code=200,
-            )
-
-        async def get_root(request):
-            """Root endpoint with server information."""
-            tool_names = list(self.mcp._tool_manager._tools.keys())
-            return JSONResponse({
-                "name": "Claude Agent MCP Server",
-                "version": "0.1.0",
-                "description": "MCP Server with Claude Code-like tools",
-                "endpoints": {
-                    "/": "Server info",
-                    "/health": "Health check",
-                    "/sse": "MCP communication endpoint",
-                },
-                "tools": tool_names,
-                "tool_count": len(tool_names),
-            })
-
-        # Get the SSE app and add custom routes
-        app = self.mcp.sse_app()
-        app.router.routes.extend([
-            Route("/health", health_check, methods=["GET"]),
-            Route("/", get_root, methods=["GET"]),
-        ])
-
-        return app
+        # FastMCP handles the server internally
+        await self.mcp.run_sse_async(host=host, port=port)
 
 
 def create_server(config_dir: str = "config") -> MCPServer:
@@ -326,13 +290,18 @@ def create_server(config_dir: str = "config") -> MCPServer:
 
 # For direct execution
 if __name__ == "__main__":
-    import uvicorn
+    import asyncio
 
-    server = create_server()
-    app = server.get_app()
+    async def main():
+        print("Starting MCP Server on http://localhost:8000")
+        print("MCP SSE endpoint: http://localhost:8000/sse")
+        print()
+        server = create_server()
+        await server.run_server(host="0.0.0.0", port=8000)
 
-    print("Starting MCP Server on http://localhost:8000")
-    print("Health check: http://localhost:8000/health")
-    print("MCP endpoint: http://localhost:8000/sse")
-
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nServer stopped")
+        import sys
+        sys.exit(0)
