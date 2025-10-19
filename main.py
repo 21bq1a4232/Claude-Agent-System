@@ -41,6 +41,18 @@ def load_config(config_dir: str = "config") -> dict:
     return config
 
 
+async def check_mcp_server(url: str = "http://localhost:8000") -> bool:
+    """Check if MCP server is running."""
+    import httpx
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{url}/health", timeout=2.0)
+            return response.status_code == 200
+    except Exception:
+        return False
+
+
 async def main() -> int:
     """
     Main entry point.
@@ -48,28 +60,58 @@ async def main() -> int:
     Returns:
         Exit code
     """
-    print("=" * 60)
+    print("=" * 70)
     print("Claude Agent System v0.1.0")
-    print("=" * 60)
+    print("=" * 70)
     print()
+
+    # Check MCP server
+    print("Checking MCP server...")
+    server_running = await check_mcp_server()
+
+    if not server_running:
+        print("⚠  MCP server not running!")
+        print()
+        print("Please start the MCP server first:")
+        print("  Terminal 1: poetry run claude-agent-server")
+        print("  Terminal 2: poetry run claude-agent")
+        print()
+        print("Or use: poetry run python start_server.py")
+        print()
+        return 1
+
+    print("✓ MCP server is running")
 
     # Load configuration
     try:
         config = load_config()
         print("✓ Configuration loaded")
     except Exception as e:
-        print(f"Error loading configuration: {e}", file=sys.stderr)
+        print(f"✗ Error loading configuration: {e}", file=sys.stderr)
         return 1
+
+    # Check Ollama
+    print("Checking Ollama connection...")
+    try:
+        import ollama
+        models = ollama.list()
+        model_count = len(models.get("models", []))
+        print(f"✓ Ollama connected ({model_count} models available)")
+    except Exception as e:
+        print(f"⚠  Ollama not available: {e}")
+        print("  Make sure Ollama is running: ollama serve")
+
+    print()
 
     # Start terminal interface
     try:
         await run_terminal_interface(config)
         return 0
     except KeyboardInterrupt:
-        print("\nInterrupted by user")
+        print("\n\nInterrupted by user")
         return 130
     except Exception as e:
-        print(f"Fatal error: {e}", file=sys.stderr)
+        print(f"\nFatal error: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc()
         return 1

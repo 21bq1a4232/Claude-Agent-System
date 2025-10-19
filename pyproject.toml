@@ -32,7 +32,8 @@ ruff = "^0.8.4"
 mypy = "^1.14.1"
 
 [tool.poetry.scripts]
-claude-agent = "main:main"
+claude-agent = "main:cli_main"
+claude-agent-server = "start_server:main"
 
 [build-system]
 requires = ["poetry-core"]

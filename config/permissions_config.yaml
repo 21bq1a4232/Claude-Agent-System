@@ -6,11 +6,13 @@ permissions:
   mode: "moderate"
 
   # Safe directories (auto-approved)
+  # Use ${CWD} for current working directory, ${HOME} for user home
   safe_directories:
-    - "/home/ec2-user/environment"
+    - "${CWD}"  # Current working directory
     - "/tmp"
     - "~/workspace"
     - "~/projects"
+    - "~/.claude-agent"  # Agent's own data directory
 
   # Directories requiring user approval
   require_approval:
@@ -146,8 +148,8 @@ auto_approval:
 
   # Patterns that are auto-approved after first approval
   remember_patterns:
-    - "read:/home/ec2-user/environment/**"
-    - "write:/home/ec2-user/environment/**/test_*"
+    - "read:${CWD}/**"
+    - "write:${CWD}/**/test_*"
     - "bash:pytest*"
     - "bash:python*"
     - "bash:npm*"
@@ -212,7 +214,7 @@ profiles:
   development:
     mode: "moderate"
     safe_directories:
-      - "/home/ec2-user/environment"
+      - "${CWD}"
       - "~/workspace"
     auto_approval:
       enabled: true

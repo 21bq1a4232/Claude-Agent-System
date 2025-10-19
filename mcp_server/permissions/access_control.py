@@ -39,7 +39,10 @@ class PermissionManager:
 
     def _normalize_path(self, path: str) -> Path:
         """Normalize a path for comparison."""
-        return Path(path).expanduser().resolve()
+        # Expand custom variables
+        expanded = path.replace("${CWD}", os.getcwd())
+        expanded = expanded.replace("${HOME}", str(Path.home()))
+        return Path(expanded).expanduser().resolve()
 
     def _match_pattern(self, path: Path, pattern: str) -> bool:
         """

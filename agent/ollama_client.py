@@ -18,8 +18,23 @@ class OllamaClient:
         """
         self.config = config.get("ollama", {})
         self.agent_config = config.get("agent", {})
-        self.current_model = self.agent_config.get("default_model", "deepseek-r1:1.5b")
         self.base_url = self.config.get("base_url", "http://localhost:11434")
+
+        # Auto-discover models and set current model
+        available_models = self.list_models()
+
+        default_model = self.agent_config.get("default_model")
+        if default_model:
+            # Use configured default if available
+            self.current_model = default_model
+        elif available_models:
+            # Auto-select first available model
+            self.current_model = available_models[0]
+            print(f"Auto-selected model: {self.current_model}")
+        else:
+            # Fallback
+            self.current_model = "llama3.2:latest"
+            print(f"Warning: No models found. Using fallback: {self.current_model}")
 
     async def generate(
         self,
@@ -152,12 +167,23 @@ class OllamaClient:
             }
 
     def list_models(self) -> List[str]:
-        """List available Ollama models."""
+        """List available Ollama models dynamically from Ollama API."""
         try:
-            models = ollama.list()
-            return [model["name"] for model in models.get("models", [])]
+            response = ollama.list()
+            models_list = response.get("models", [])
+
+            # Extract model names - try both "name" and "model" keys
+            model_names = []
+            for model in models_list:
+                # Try "name" first, then "model" as fallback
+                name = model.get("name") or model.get("model")
+                if name:
+                    model_names.append(name)
+
+            return sorted(model_names)  # Sort for better UX
         except Exception as e:
-            print(f"Error listing models: {e}")
+            print(f"Error listing models from Ollama: {e}")
+            print(f"Make sure Ollama is running: ollama serve")
             return []
 
     def switch_model(self, model_name: str) -> bool:

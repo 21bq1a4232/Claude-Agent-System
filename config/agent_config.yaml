@@ -3,12 +3,19 @@
 
 agent:
   # Default model to use (can be changed via /model command)
-  default_model: "deepseek-r1:1.5b"
+  # Set to null to auto-select first available model
+  # Recommended models (in order of preference):
+  #   1. qwen2.5:3b or qwen2.5:7b - Best balance of size/capability
+  #   2. llama3.2:3b - Good instruction following
+  #   3. mistral:7b - Reliable but larger
+  #   4. qwen2:0.5b - Smallest, fastest, but less capable
+  #
+  # AVOID reasoning models like deepseek-r1 - they output thinking process
+  # which causes hallucinations in the agent loop
+  default_model: null  # Auto-select from available models
 
-  # Available models (auto-discovered from Ollama)
-  available_models:
-    - "qwen2:0.5b"
-    - "deepseek-r1:1.5b"
+  # Available models are auto-discovered from Ollama on startup
+  # No need to configure here - they're fetched dynamically
 
   # Agent mode enabled by default (can be toggled via /agent command)
   enabled: true
@@ -51,19 +58,22 @@ ollama:
 # Agentic loop configuration
 loop:
   # Phases: think -> plan -> act -> observe -> reflect
+  # NOTE: Think phase disabled by default to prevent hallucinations with small models
   phases:
     think:
-      enabled: true
+      enabled: false  # Disabled - causes hallucinations with reasoning models
       prompt_template: "system_think"
 
     plan:
-      enabled: true
+      enabled: false  # Simplified - tool selection happens in Act phase
       prompt_template: "system_plan"
       max_plan_steps: 5
 
     act:
       enabled: true
       prompt_template: "system_act"
+      # Direct tool execution without separate planning
+      direct_mode: true
       # Execute tools in parallel when possible
       parallel_execution: false
 
@@ -73,7 +83,7 @@ loop:
       parse_errors: true
 
     reflect:
-      enabled: true
+      enabled: false  # Disabled for simpler operation
       # Learn from errors
       error_learning: true
 
