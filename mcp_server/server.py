@@ -267,7 +267,7 @@ class MCPServer:
 
         self.logger.info(f"Registered {len(self.mcp._tool_manager._tools)} MCP tools")
 
-    async def run_server(self, host: str = "0.0.0.0", port: int = 8000):
+    def run_server(self, host: str = "0.0.0.0", port: int = 8000):
         """Run the MCP server using FastMCP's built-in SSE server."""
         self.logger.info(f"Starting FastMCP SSE server on {host}:{port}")
 
@@ -275,8 +275,8 @@ class MCPServer:
         self.mcp.settings.host = host
         self.mcp.settings.port = port
 
-        # FastMCP handles the server internally
-        await self.mcp.run_sse_async()
+        # FastMCP.run() is synchronous, not async
+        self.mcp.run(transport="sse")
 
 
 def create_server(config_dir: str = "config") -> MCPServer:
@@ -294,18 +294,15 @@ def create_server(config_dir: str = "config") -> MCPServer:
 
 # For direct execution
 if __name__ == "__main__":
-    import asyncio
+    import sys
 
-    async def main():
-        print("Starting MCP Server on http://localhost:8000")
-        print("MCP SSE endpoint: http://localhost:8000/sse")
-        print()
-        server = create_server()
-        await server.run_server(host="0.0.0.0", port=8000)
+    print("Starting MCP Server on http://localhost:8000")
+    print("MCP SSE endpoint: http://localhost:8000/sse")
+    print()
 
     try:
-        asyncio.run(main())
+        server = create_server()
+        server.run_server(host="0.0.0.0", port=8000)
     except KeyboardInterrupt:
         print("\nServer stopped")
-        import sys
         sys.exit(0)

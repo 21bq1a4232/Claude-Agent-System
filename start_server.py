@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Standalone MCP Server - Run this separately from the agent."""
 
-import asyncio
 import sys
 from pathlib import Path
 
@@ -11,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from mcp_server.server import create_server
 
 
-async def main_async():
+def main():
     """Start the MCP server standalone."""
     print("=" * 70)
     print("MCP Server - Claude Agent System")
@@ -26,15 +25,10 @@ async def main_async():
     print("=" * 70)
     print()
 
-    # Create and run server
-    server = create_server(config_dir="config")
-    await server.run_server(host="0.0.0.0", port=8000)
-
-
-def main():
-    """Entry point."""
     try:
-        asyncio.run(main_async())
+        # Create and run server (synchronous)
+        server = create_server(config_dir="config")
+        server.run_server(host="0.0.0.0", port=8000)
     except KeyboardInterrupt:
         print("\n\nServer stopped by user")
         sys.exit(0)
