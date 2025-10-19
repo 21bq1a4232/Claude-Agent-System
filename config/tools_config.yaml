@@ -1,0 +1,300 @@
+# Tools Configuration
+# Defines available MCP tools and their settings
+
+tools:
+  # File operations
+  read:
+    enabled: true
+    description: "Read files from the filesystem"
+
+    # Maximum file size (MB)
+    max_file_size_mb: 10
+
+    # Maximum lines to read in one operation
+    max_lines: 10000
+
+    # Support for offset/limit
+    supports_pagination: true
+
+    # Rate limiting
+    rate_limit:
+      enabled: true
+      max_calls_per_minute: 100
+
+  write:
+    enabled: true
+    description: "Write content to files"
+
+    # Require confirmation for overwrite
+    confirm_overwrite: true
+
+    # Maximum file size (MB)
+    max_file_size_mb: 5
+
+    # Backup before overwrite
+    backup:
+      enabled: true
+      suffix: ".backup"
+
+    # Rate limiting
+    rate_limit:
+      enabled: true
+      max_calls_per_minute: 30
+
+  edit:
+    enabled: true
+    description: "Edit files with search/replace"
+
+    # Support for regex in search
+    regex_enabled: true
+
+    # Preview changes before applying
+    preview: true
+
+    # Maximum replacements per operation
+    max_replacements: 1000
+
+    # Rate limiting
+    rate_limit:
+      enabled: true
+      max_calls_per_minute: 50
+
+  # Search operations
+  grep:
+    enabled: true
+    description: "Search for patterns in files"
+
+    # Regex support
+    regex_enabled: true
+
+    # Case insensitive by default
+    case_insensitive: false
+
+    # Maximum results
+    max_results: 1000
+
+    # Context lines
+    context_lines:
+      before: 0
+      after: 0
+
+    # Rate limiting
+    rate_limit:
+      enabled: true
+      max_calls_per_minute: 100
+
+  glob:
+    enabled: true
+    description: "Find files matching patterns"
+
+    # Maximum files to return
+    max_results: 1000
+
+    # Follow symlinks
+    follow_symlinks: false
+
+    # Exclude patterns
+    exclude_patterns:
+      - "node_modules/**"
+      - ".git/**"
+      - "__pycache__/**"
+      - "*.pyc"
+      - ".venv/**"
+      - "venv/**"
+
+    # Rate limiting
+    rate_limit:
+      enabled: true
+      max_calls_per_minute: 50
+
+  # Shell operations
+  bash:
+    enabled: true
+    description: "Execute bash commands"
+
+    # Timeout (seconds)
+    default_timeout: 120
+    max_timeout: 600
+
+    # Working directory (default: current)
+    default_cwd: null
+
+    # Environment variables
+    env:
+      PYTHONUNBUFFERED: "1"
+
+    # Background execution support
+    background:
+      enabled: true
+      max_jobs: 10
+
+    # Blocked commands (for safety)
+    blocked_commands:
+      - "rm -rf /"
+      - "dd if=/dev/zero"
+      - "mkfs"
+      - "format"
+      - ":(){ :|:& };:"  # fork bomb
+
+    # Commands requiring confirmation
+    dangerous_commands:
+      - "rm -rf"
+      - "sudo"
+      - "chmod -R"
+      - "chown -R"
+
+    # Rate limiting
+    rate_limit:
+      enabled: true
+      max_calls_per_minute: 30
+
+  # Web operations
+  web_fetch:
+    enabled: true
+    description: "Fetch content from URLs"
+
+    # Timeout (seconds)
+    timeout: 30
+
+    # Maximum redirects
+    max_redirects: 5
+
+    # User agent
+    user_agent: "ClaudeAgentSystem/0.1.0"
+
+    # Allowed domains (empty = all allowed)
+    allowed_domains: []
+
+    # Blocked domains
+    blocked_domains:
+      - "localhost"
+      - "127.0.0.1"
+      - "0.0.0.0"
+
+    # Maximum content size (MB)
+    max_content_size_mb: 10
+
+    # Rate limiting
+    rate_limit:
+      enabled: true
+      max_calls_per_minute: 20
+
+  web_search:
+    enabled: true
+    description: "Search the web"
+
+    # Search engine (currently only supports basic search)
+    engine: "duckduckgo"
+
+    # Maximum results
+    max_results: 10
+
+    # Rate limiting (stricter for web searches)
+    rate_limit:
+      enabled: true
+      max_calls_per_minute: 10
+
+  # Git operations
+  git_status:
+    enabled: true
+    description: "Get git repository status"
+    rate_limit:
+      enabled: false
+
+  git_diff:
+    enabled: true
+    description: "Show git diff"
+
+    # Maximum diff size (lines)
+    max_lines: 5000
+
+    rate_limit:
+      enabled: false
+
+  git_log:
+    enabled: true
+    description: "Show git commit history"
+
+    # Default number of commits
+    default_limit: 10
+    max_limit: 100
+
+    rate_limit:
+      enabled: false
+
+  git_commit:
+    enabled: true
+    description: "Create git commits"
+
+    # Require confirmation
+    confirm: true
+
+    # Auto-add files
+    auto_add: true
+
+    rate_limit:
+      enabled: true
+      max_calls_per_minute: 10
+
+  git_push:
+    enabled: true
+    description: "Push commits to remote"
+
+    # Require confirmation
+    confirm: true
+
+    # Prevent force push to main branches
+    protect_branches:
+      - "main"
+      - "master"
+      - "production"
+
+    rate_limit:
+      enabled: true
+      max_calls_per_minute: 5
+
+# Global rate limiting
+global_rate_limit:
+  enabled: true
+
+  # Maximum total tool calls per minute
+  max_calls_per_minute: 200
+
+  # Maximum concurrent tool executions
+  max_concurrent: 5
+
+# Caching
+cache:
+  enabled: true
+
+  # Cache tool results
+  tools:
+    read:
+      ttl_seconds: 60
+    grep:
+      ttl_seconds: 300
+    glob:
+      ttl_seconds: 300
+    web_fetch:
+      ttl_seconds: 900
+
+# Logging
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR
+  level: "INFO"
+
+  # Log file
+  file:
+    enabled: true
+    path: "logs/tools.log"
+    max_size_mb: 100
+    backup_count: 5
+
+  # Log tool calls
+  log_calls: true
+
+  # Log tool results (may be verbose)
+  log_results: false
+
+  # Log errors
+  log_errors: true

@@ -1,0 +1,231 @@
+# Permissions Configuration
+# Controls access to files, directories, and operations
+
+permissions:
+  # Default permission mode: "strict", "moderate", "permissive"
+  mode: "moderate"
+
+  # Safe directories (auto-approved)
+  safe_directories:
+    - "/home/ec2-user/environment"
+    - "/tmp"
+    - "~/workspace"
+    - "~/projects"
+
+  # Directories requiring user approval
+  require_approval:
+    - "/home/*"
+    - "/opt/*"
+    - "/usr/local/*"
+    - "/var/*"
+
+  # Blocked directories (always denied)
+  blocked_directories:
+    - "/root"
+    - "/sys"
+    - "/proc"
+    - "/boot"
+    - "/dev"
+    - "/.ssh"
+    - "/etc/shadow"
+    - "/etc/passwd"
+
+  # File type restrictions
+  file_types:
+    # Blocked file types (never allow)
+    blocked:
+      - ".exe"
+      - ".dll"
+      - ".so"
+      - ".dylib"
+
+    # Require approval
+    require_approval:
+      - ".sh"
+      - ".bash"
+      - ".zsh"
+      - ".env"
+      - ".key"
+      - ".pem"
+      - ".crt"
+
+  # Operations requiring approval
+  operations:
+    # File operations
+    file_write:
+      require_approval_patterns:
+        - "*/package.json"
+        - "*/pyproject.toml"
+        - "*/Cargo.toml"
+        - "*/go.mod"
+        - "*/requirements.txt"
+        - "*/.env*"
+        - "*/config/*"
+
+    file_delete:
+      require_approval: true
+      blocked_patterns:
+        - "/"
+        - "/*"
+        - "~/*"
+
+    # Shell operations
+    shell_execute:
+      # Commands that always require approval
+      require_approval_commands:
+        - "sudo"
+        - "su"
+        - "chmod"
+        - "chown"
+        - "rm"
+        - "mv"
+        - "cp"
+        - "dd"
+        - "mkfs"
+        - "fdisk"
+        - "parted"
+        - "systemctl"
+        - "service"
+        - "shutdown"
+        - "reboot"
+        - "kill"
+        - "killall"
+
+      # Commands that are blocked
+      blocked_commands:
+        - "rm -rf /"
+        - "dd if=/dev/zero of=/dev/sda"
+        - "mkfs.ext4 /dev/sda"
+        - ":(){ :|:& };:"
+        - "chmod -R 777 /"
+
+      # Environment variables that require approval
+      sensitive_env_vars:
+        - "PATH"
+        - "LD_LIBRARY_PATH"
+        - "PYTHONPATH"
+
+    # Git operations
+    git_push:
+      require_approval: true
+
+      # Branches requiring extra confirmation
+      protected_branches:
+        - "main"
+        - "master"
+        - "production"
+        - "release/*"
+
+    # Web operations
+    web_fetch:
+      # Blocked domains/IPs
+      blocked:
+        - "localhost"
+        - "127.0.0.1"
+        - "0.0.0.0"
+        - "169.254.169.254"  # AWS metadata
+        - "metadata.google.internal"  # GCP metadata
+
+      # Require approval for these domains
+      require_approval:
+        - "*.internal"
+        - "*.local"
+
+# Auto-approval rules
+auto_approval:
+  enabled: true
+
+  # Remember approvals for session
+  remember_session: true
+
+  # Remember approvals across sessions
+  remember_persistent: false
+
+  # Approval cache TTL (seconds)
+  cache_ttl: 3600
+
+  # Patterns that are auto-approved after first approval
+  remember_patterns:
+    - "read:/home/ec2-user/environment/**"
+    - "write:/home/ec2-user/environment/**/test_*"
+    - "bash:pytest*"
+    - "bash:python*"
+    - "bash:npm*"
+    - "bash:git status"
+    - "bash:git diff"
+
+# Audit logging
+audit:
+  enabled: true
+
+  # Log all permission requests
+  log_requests: true
+
+  # Log approvals/denials
+  log_decisions: true
+
+  # Audit log file
+  log_file: "logs/permissions.log"
+
+  # Include stack trace for denied operations
+  include_stacktrace: false
+
+  # Alert on suspicious patterns
+  alerts:
+    enabled: true
+
+    # Alert on multiple denials
+    multiple_denials:
+      threshold: 5
+      window_seconds: 60
+
+    # Alert on blocked commands
+    blocked_command_attempt: true
+
+    # Alert on unusual access patterns
+    unusual_access: true
+
+# Sandboxing (future feature)
+sandbox:
+  enabled: false
+
+  # Use containers for isolation
+  use_containers: false
+
+  # Network isolation
+  network_isolation: false
+
+  # Resource limits
+  limits:
+    max_memory_mb: 1024
+    max_cpu_percent: 50
+    max_disk_mb: 1024
+
+# Permission profiles (quick switch)
+profiles:
+  strict:
+    mode: "strict"
+    safe_directories: []
+    auto_approval:
+      enabled: false
+
+  development:
+    mode: "moderate"
+    safe_directories:
+      - "/home/ec2-user/environment"
+      - "~/workspace"
+    auto_approval:
+      enabled: true
+
+  permissive:
+    mode: "permissive"
+    safe_directories:
+      - "/home/*"
+      - "~/workspace"
+      - "/tmp"
+    auto_approval:
+      enabled: true
+      remember_persistent: true
+
+# Active profile
+active_profile: "development"

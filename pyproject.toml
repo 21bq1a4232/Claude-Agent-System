@@ -1,0 +1,61 @@
+[tool.poetry]
+name = "claude-agent-system"
+version = "0.1.0"
+description = "Agentic system with MCP tools, Ollama agent, and terminal interface"
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+packages = [{include = "mcp_server"}, {include = "agent"}, {include = "cli"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+mcp = "^1.16.0"
+fastmcp = "^0.3.0"
+pydantic = "^2.10.6"
+pydantic-settings = "^2.7.1"
+pyyaml = "^6.0.2"
+rich = "^13.9.4"
+prompt-toolkit = "^3.0.48"
+httpx = "^0.28.1"
+httpx-sse = "^0.4.0"
+aiofiles = "^24.1.0"
+python-multipart = "^0.0.19"
+uvicorn = "^0.34.0"
+starlette = "^0.41.3"
+ollama = "^0.4.5"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.4"
+pytest-asyncio = "^0.25.2"
+pytest-cov = "^6.0.0"
+black = "^24.10.0"
+ruff = "^0.8.4"
+mypy = "^1.14.1"
+
+[tool.poetry.scripts]
+claude-agent = "main:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --cov=mcp_server --cov=agent --cov=cli --cov-report=term-missing"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
