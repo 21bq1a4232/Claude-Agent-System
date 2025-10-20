@@ -379,24 +379,64 @@ class AgentCore:
             
             # If tools were called, add tool results to context and get final response
             if tool_results:
-                # Format tool results properly for the model to process
-                tool_results_formatted = []
-                for r in tool_results:
-                    tool_info = {
-                        "tool": r['tool'],
-                        "success": r['success'],
-                    }
-                    if r['success']:
-                        # Include the actual result data
-                        tool_info["data"] = r.get('result', {})
-                    else:
-                        tool_info["error"] = r.get('error', 'Unknown error')
-                    tool_results_formatted.append(tool_info)
-                
-                # Add tool results to context in a structured way
+                # Extract and format tool results cleanly for the model
                 import json
-                tool_results_json = json.dumps(tool_results_formatted, indent=2)
-                self.context.add_message("system", f"Tool execution completed. Here are the results:\n{tool_results_json}\n\nNow format this data in a clear, user-friendly way for the user.")
+
+                def truncate_content(content: str, max_tokens: int = None) -> tuple:
+                    """
+                    Truncate content if too large, keeping first and last portions.
+                    Returns (truncated_content, was_truncated)
+                    """
+                    # Get token limit from config
+                    if max_tokens is None:
+                        max_tokens = self.config.get("tools_config", {}).get("tools", {}).get("token_limits", {}).get("max_content_tokens", 4000)
+
+                    # Rough estimate: 1 token ≈ 4 characters
+                    max_chars = max_tokens * 4
+                    if len(content) <= max_chars:
+                        return content, False
+
+                    # Keep first 60% and last 40% for context
+                    first_part = int(max_chars * 0.6)
+                    last_part = int(max_chars * 0.4)
+
+                    truncated = (
+                        content[:first_part] +
+                        f"\n\n... [truncated {len(content) - max_chars} characters] ...\n\n" +
+                        content[-last_part:]
+                    )
+                    return truncated, True
+
+                # Process tool results cleanly
+                formatted_results = []
+                for r in tool_results:
+                    tool_name = r['tool']
+                    if r['success']:
+                        # Extract data - handle both nested and flat structures
+                        result_data = r.get('result', {})
+                        if 'result' in result_data:
+                            result_data = result_data['result']
+
+                        # Smart content extraction with truncation
+                        if 'content' in result_data:
+                            content, truncated = truncate_content(result_data['content'])
+                            result_data['content'] = content
+                            if truncated:
+                                result_data['_truncated'] = True
+
+                        formatted_results.append({
+                            'tool': tool_name,
+                            'data': result_data
+                        })
+                    else:
+                        formatted_results.append({
+                            'tool': tool_name,
+                            'error': r.get('error', 'Unknown error')
+                        })
+
+                # Simple, clean context message - let the enhanced system prompt handle intelligence
+                results_json = json.dumps(formatted_results, indent=2)
+                self.context.add_message("tool", results_json)
                 
                 if self.verbose:
                     print(f"\n[Agent] Generating final response based on tool results...")

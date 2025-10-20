@@ -2,6 +2,13 @@
 # Defines available MCP tools and their settings
 
 tools:
+  # Token limits for tool results (prevents context overflow)
+  token_limits:
+    # Maximum tokens for content in tool results (~16KB text)
+    max_content_tokens: 4000
+    # Keep ratio when truncating content (first 60%, last 40%)
+    truncate_keep_ratio: [0.6, 0.4]
+
   # File operations
   read:
     enabled: true
@@ -280,21 +287,27 @@ cache:
 
 # Logging
 logging:
-  # Log level: DEBUG, INFO, WARNING, ERROR
+  # Log level: DEBUG for detailed tool execution, INFO for production
   level: "INFO"
 
-  # Log file
+  # Log files for different components
   file:
     enabled: true
-    path: "logs/tools.log"
+    # MCP tools - all tool operations logged here
+    mcp_tools: "logs/mcp_tools.log"
+    # Agent decision-making
+    agent: "logs/agent.log"
+    # Centralized errors
+    errors: "logs/errors.log"
+    # File rotation settings
     max_size_mb: 100
     backup_count: 5
 
-  # Log tool calls
+  # Log tool calls (START/SUCCESS/FAILED)
   log_calls: true
 
-  # Log tool results (may be verbose)
+  # Log detailed tool results (may be verbose - useful for debugging)
   log_results: false
 
-  # Log errors
+  # Log all errors with stack traces
   log_errors: true

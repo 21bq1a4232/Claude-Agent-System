@@ -48,16 +48,26 @@ class FileTools:
         Returns:
             Dictionary with file contents and metadata
         """
+        import time
+        start_time = time.time()
+
+        logger.info(f"[read_file] START - file_path={file_path}, offset={offset}, limit={limit}")
+
         try:
             # Validate input
+            logger.debug(f"[read_file] Validating path: {file_path}")
             path = InputValidator.validate_file_path(file_path, must_exist=True)
+            logger.debug(f"[read_file] Validation passed - resolved path: {path}")
 
             # Check permissions
+            logger.debug(f"[read_file] Checking permissions for: {path}")
             self.permission_manager.check_file_access(str(path), operation="read")
+            logger.debug(f"[read_file] Permission check: ALLOWED")
 
             # Check file size
             max_size_mb = self.config.get("read", {}).get("max_file_size_mb", 10)
             file_size = path.stat().st_size
+            logger.debug(f"[read_file] File size: {file_size} bytes ({file_size / (1024 * 1024):.2f} MB)")
             if file_size > max_size_mb * 1024 * 1024:
                 raise ToolError(
                     f"File too large: {file_size / (1024 * 1024):.2f}MB (max: {max_size_mb}MB)",
@@ -66,10 +76,12 @@ class FileTools:
                 )
 
             # Read file
+            logger.debug(f"[read_file] Reading file content")
             async with aiofiles.open(path, "r", encoding="utf-8", errors="replace") as f:
                 lines = await f.readlines()
 
             total_lines = len(lines)
+            logger.debug(f"[read_file] Read {total_lines} lines from file")
 
             # Apply offset and limit
             if offset is not None:
@@ -88,6 +100,9 @@ class FileTools:
 
             content = "\n".join(formatted_lines)
 
+            elapsed = time.time() - start_time
+            logger.info(f"[read_file] SUCCESS - {len(lines)} lines returned, {elapsed:.3f}s")
+
             return {
                 "success": True,
                 "file_path": str(path),
@@ -98,7 +113,8 @@ class FileTools:
             }
 
         except Exception as e:
-            logger.error(f"Error reading file {file_path}: {e}")
+            elapsed = time.time() - start_time
+            logger.error(f"[read_file] FAILED - {type(e).__name__}: {e}, {elapsed:.3f}s")
             return create_error_response(e)
 
     async def write_file(
@@ -118,18 +134,29 @@ class FileTools:
         Returns:
             Dictionary with operation result
         """
+        import time
+        start_time = time.time()
+
+        content_size = len(content.encode("utf-8"))
+        logger.info(f"[write_file] START - file_path={file_path}, content_size={content_size} bytes, backup={create_backup}")
+
         try:
             # Validate input
+            logger.debug(f"[write_file] Validating path: {file_path}")
             path = InputValidator.validate_file_path(file_path)
+            logger.debug(f"[write_file] Validation passed - resolved path: {path}")
 
             # Check if file exists
             file_exists = path.exists()
+            logger.debug(f"[write_file] File exists: {file_exists}")
 
             # Check permissions
+            logger.debug(f"[write_file] Checking permissions for: {path}")
             self.permission_manager.check_file_access(
                 str(path),
                 operation="write",
             )
+            logger.debug(f"[write_file] Permission check: ALLOWED")
 
             # Backup if needed
             backup_config = self.config.get("write", {}).get("backup", {})
@@ -139,28 +166,37 @@ class FileTools:
             if file_exists and should_backup:
                 backup_suffix = backup_config.get("suffix", ".backup")
                 backup_path = Path(str(path) + backup_suffix)
+                logger.debug(f"[write_file] Creating backup: {backup_path}")
                 shutil.copy2(path, backup_path)
-                logger.info(f"Created backup: {backup_path}")
+                logger.debug(f"[write_file] Backup created successfully")
 
             # Write file
+            logger.debug(f"[write_file] Creating parent directories if needed")
             path.parent.mkdir(parents=True, exist_ok=True)
+            logger.debug(f"[write_file] Writing content to file")
             async with aiofiles.open(path, "w", encoding="utf-8") as f:
                 await f.write(content)
 
             lines_written = len(content.splitlines())
+            bytes_written = len(content.encode("utf-8"))
+
+            elapsed = time.time() - start_time
+            operation = "overwrite" if file_exists else "create"
+            logger.info(f"[write_file] SUCCESS - operation={operation}, lines={lines_written}, bytes={bytes_written}, {elapsed:.3f}s")
 
             return {
                 "success": True,
                 "file_path": str(path),
                 "lines_written": lines_written,
-                "bytes_written": len(content.encode("utf-8")),
+                "bytes_written": bytes_written,
                 "backup_created": backup_path is not None,
                 "backup_path": str(backup_path) if backup_path else None,
-                "operation": "overwrite" if file_exists else "create",
+                "operation": operation,
             }
 
         except Exception as e:
-            logger.error(f"Error writing file {file_path}: {e}")
+            elapsed = time.time() - start_time
+            logger.error(f"[write_file] FAILED - {type(e).__name__}: {e}, {elapsed:.3f}s")
             return create_error_response(e)
 
     async def edit_file(
@@ -182,19 +218,30 @@ class FileTools:
         Returns:
             Dictionary with operation result
         """
+        import time
+        start_time = time.time()
+
+        logger.info(f"[edit_file] START - file_path={file_path}, old_len={len(old_string)}, new_len={len(new_string)}, replace_all={replace_all}")
+
         try:
             # Validate input
+            logger.debug(f"[edit_file] Validating path: {file_path}")
             path = InputValidator.validate_file_path(file_path, must_exist=True)
+            logger.debug(f"[edit_file] Validation passed - resolved path: {path}")
 
             # Check permissions
+            logger.debug(f"[edit_file] Checking permissions for: {path}")
             self.permission_manager.check_file_access(str(path), operation="write")
+            logger.debug(f"[edit_file] Permission check: ALLOWED")
 
             # Read current content
+            logger.debug(f"[edit_file] Reading current file content")
             async with aiofiles.open(path, "r", encoding="utf-8", errors="replace") as f:
                 content = await f.read()
 
             # Count occurrences
             occurrences = content.count(old_string)
+            logger.debug(f"[edit_file] Found {occurrences} occurrence(s) of search string")
 
             if occurrences == 0:
                 raise ToolError(
@@ -222,13 +269,20 @@ class FileTools:
                 new_content = content.replace(old_string, new_string, 1)
                 replacements = 1
 
+            logger.debug(f"[edit_file] Performing replacement - count={replacements}")
+
             # Create backup
             backup_path = Path(str(path) + ".backup")
+            logger.debug(f"[edit_file] Creating backup: {backup_path}")
             shutil.copy2(path, backup_path)
 
             # Write new content
+            logger.debug(f"[edit_file] Writing modified content to file")
             async with aiofiles.open(path, "w", encoding="utf-8") as f:
                 await f.write(new_content)
+
+            elapsed = time.time() - start_time
+            logger.info(f"[edit_file] SUCCESS - replacements={replacements}, {elapsed:.3f}s")
 
             return {
                 "success": True,
@@ -240,7 +294,8 @@ class FileTools:
             }
 
         except Exception as e:
-            logger.error(f"Error editing file {file_path}: {e}")
+            elapsed = time.time() - start_time
+            logger.error(f"[edit_file] FAILED - {type(e).__name__}: {e}, {elapsed:.3f}s")
             return create_error_response(e)
 
     async def delete_file(self, file_path: str) -> Dict[str, Any]:
