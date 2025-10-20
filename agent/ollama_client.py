@@ -82,8 +82,12 @@ class OllamaClient:
         options: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Generate full response (non-streaming)."""
+        import asyncio
+
         try:
-            response = ollama.generate(
+            # Properly wrap synchronous ollama.generate() in thread pool
+            response = await asyncio.to_thread(
+                ollama.generate,
                 model=model,
                 prompt=prompt,
                 system=system,
@@ -139,6 +143,8 @@ class OllamaClient:
         Returns:
             Chat response
         """
+        import asyncio
+
         model = model or self.current_model
         temperature = temperature if temperature is not None else self.config.get("temperature", 0.7)
 
@@ -157,7 +163,8 @@ class OllamaClient:
             if tools:
                 kwargs["tools"] = tools
 
-            response = ollama.chat(**kwargs)
+            # Properly wrap synchronous ollama.chat() in thread pool
+            response = await asyncio.to_thread(ollama.chat, **kwargs)
             return response
 
         except Exception as e:

@@ -25,9 +25,15 @@ agent:
 
   # Maximum number of reasoning steps before stopping
   max_steps: 10
-  
+
   # Enable streaming for faster responses (like ollama run)
   stream_responses: true
+
+  # Timeout for LLM calls in seconds (prevents infinite hangs)
+  llm_timeout: 60
+
+  # Timeout for tool execution in seconds
+  tool_timeout: 30
 
   # Token management
   tokens:

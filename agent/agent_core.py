@@ -279,15 +279,29 @@ class AgentCore:
             if self.verbose:
                 print("\n[Agent] Conversational message detected, responding directly")
             return await self._direct_response(user_message)
-        
+
         try:
             # Use native Ollama tool calling for single LLM call
             # Get available tools in Ollama format
             tools = await self._get_tools_for_ollama()
-            
-            # Make single chat call with tools
+
+            if self.verbose:
+                print("\n[Agent] Analyzing request and selecting tools...")
+
+            # Make single chat call with tools (with timeout)
             messages = self.context.get_messages_for_llm()
-            response = await self.ollama.chat(messages, tools=tools if tools else None)
+
+            # Add timeout to prevent infinite hangs (default 60s)
+            timeout = self.agent_config.get("llm_timeout", 60)
+            try:
+                response = await asyncio.wait_for(
+                    self.ollama.chat(messages, tools=tools if tools else None),
+                    timeout=timeout
+                )
+            except asyncio.TimeoutError:
+                if self.verbose:
+                    print(f"\n[Agent] LLM call timed out after {timeout}s")
+                return "I'm sorry, the request took too long to process. Please try a simpler request or check if Ollama is responding properly."
             
             # Check for errors in response
             if response.get("error"):
@@ -311,30 +325,48 @@ class AgentCore:
             
             # Execute any tool calls
             tool_results = []
-            for tool_call in tool_calls:
+            for i, tool_call in enumerate(tool_calls, 1):
                 function = tool_call.get("function", {})
                 tool_name = function.get("name")
                 arguments = function.get("arguments", {})
-                
+
                 if self.verbose:
-                    print(f"\n[Act] Executing: {tool_name}")
+                    print(f"\n[Act] Executing tool {i}/{len(tool_calls)}: {tool_name}")
                     print(f"[Act] Arguments: {arguments}")
-                
+                else:
+                    # Show minimal progress even in non-verbose mode
+                    print(f"⚙️  Executing: {tool_name}...")
+
                 try:
-                    result = await self.tool_executor.execute_tool(tool_name, arguments)
+                    # Add timeout for tool execution (default 30s)
+                    tool_timeout = self.agent_config.get("tool_timeout", 30)
+                    result = await asyncio.wait_for(
+                        self.tool_executor.execute_tool(tool_name, arguments),
+                        timeout=tool_timeout
+                    )
                     tool_results.append({
                         "tool": tool_name,
                         "result": result,
                         "success": result.get("success", False)
                     })
-                    
+
                     if self.verbose:
                         status = "✓" if result.get("success") else "✗"
                         print(f"[Act] {tool_name} - {status}")
                         if not result.get("success"):
                             err = result.get("error", "Unknown error")
                             print(f"[Act] Error: {err}")
-                            
+
+                except asyncio.TimeoutError:
+                    tool_results.append({
+                        "tool": tool_name,
+                        "result": None,
+                        "success": False,
+                        "error": f"Tool execution timed out after {tool_timeout}s"
+                    })
+                    if self.verbose:
+                        print(f"[Act] {tool_name} - ✗ (Timeout)")
+
                 except Exception as e:
                     tool_results.append({
                         "tool": tool_name,
@@ -379,7 +411,15 @@ class AgentCore:
                         final_response += chunk
                     print()  # New line after streaming
                 else:
-                    final_response = await self._generate_final_response()
+                    # Add timeout for final response generation
+                    timeout = self.agent_config.get("llm_timeout", 60)
+                    try:
+                        final_response = await asyncio.wait_for(
+                            self._generate_final_response(),
+                            timeout=timeout
+                        )
+                    except asyncio.TimeoutError:
+                        final_response = "Response generation timed out. Tool results were processed but final formatting failed."
             else:
                 # No tools called, use model's direct response
                 final_response = message.get("content", "Task completed.")
