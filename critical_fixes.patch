@@ -1,0 +1,107 @@
+diff --git a/agent/ollama_client.py b/agent/ollama_client.py
+index 1234567..abcdefg 100644
+--- a/agent/ollama_client.py
++++ b/agent/ollama_client.py
+@@ -76,10 +76,16 @@ class OllamaClient:
+
+     async def _generate_full(
+         self,
+         model: str,
+         prompt: str,
+         system: Optional[str],
+         options: Dict[str, Any],
+     ) -> Dict[str, Any]:
+         """Generate full response (non-streaming)."""
++        import asyncio
++
+         try:
+-            response = ollama.generate(
++            # Properly wrap synchronous ollama.generate() in thread pool
++            response = await asyncio.to_thread(
++                ollama.generate,
+                 model=model,
+                 prompt=prompt,
+                 system=system,
+@@ -142,10 +148,12 @@ class OllamaClient:
+         Returns:
+             Chat response
+         """
++        import asyncio
++
+         model = model or self.current_model
+         temperature = temperature if temperature is not None else self.config.get("temperature", 0.7)
+
+         options = {
+             "temperature": temperature,
+             "top_p": self.config.get("top_p", 0.9),
+@@ -159,11 +167,12 @@ class OllamaClient:
+
+             if tools:
+                 kwargs["tools"] = tools
+
+-            response = ollama.chat(**kwargs)
++            # Properly wrap synchronous ollama.chat() in thread pool
++            response = await asyncio.to_thread(ollama.chat, **kwargs)
+             return response
+
+         except Exception as e:
+             return {
+                 "message": {
+                     "role": "assistant",
+diff --git a/agent/agent_core.py b/agent/agent_core.py
+index 1234567..abcdefg 100644
+--- a/agent/agent_core.py
++++ b/agent/agent_core.py
+@@ -286,12 +286,34 @@ class AgentCore:
+             # Use native Ollama tool calling for single LLM call
+             # Get available tools in Ollama format
+             tools = await self._get_tools_for_ollama()
+
+             if self.verbose:
+                 print("\n[Agent] Analyzing request and selecting tools...")
++                print(f"[Agent] Available tools: {len(tools) if tools else 0}")
++                print(f"[Agent] Current model: {self.ollama.current_model}")
+
+-            # Make single chat call with tools
++            # Make single chat call with tools (with timeout and debug logging)
+             messages = self.context.get_messages_for_llm()
+-            response = await self.ollama.chat(messages, tools=tools if tools else None)
++
++            # Add timeout to prevent infinite hangs (default 15s for testing)
++            timeout = self.agent_config.get("llm_timeout", 15)
++
++            if self.verbose:
++                print(f"[DEBUG] Calling ollama.chat() with {timeout}s timeout...", end="", flush=True)
++
++            try:
++                response = await asyncio.wait_for(
++                    self.ollama.chat(messages, tools=tools if tools else None),
++                    timeout=timeout
++                )
++                if self.verbose:
++                    print(" COMPLETED ✓")
++            except asyncio.TimeoutError:
++                if self.verbose:
++                    print(f" TIMEOUT ✗")
++                print(f"\n[Agent] LLM call timed out after {timeout}s - falling back to direct mode")
++                return await self._direct_response(user_message)
+
+             # Check for errors in response
+             if response.get("error"):
+diff --git a/config/agent_config.yaml b/config/agent_config.yaml
+index 1234567..abcdefg 100644
+--- a/config/agent_config.yaml
++++ b/config/agent_config.yaml
+@@ -28,6 +28,12 @@ agent:
+
+   # Enable streaming for faster responses (like ollama run)
+   stream_responses: true
++
++  # Timeout for LLM calls in seconds (prevents infinite hangs)
++  llm_timeout: 15
++
++  # Timeout for tool execution in seconds
++  tool_timeout: 30
+
+   # Token management
+   tokens:

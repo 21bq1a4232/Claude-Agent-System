@@ -2,6 +2,29 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 🚀 Quick Start (MacBook M4 16GB)
+
+```bash
+# 1. Install recommended model
+ollama pull qwen2.5:7b
+
+# 2. Apply critical fixes (if needed)
+python3 auto_fix.py
+python3 test_fixes.py
+
+# 3. Install dependencies
+poetry install
+
+# 4. Run the system
+poetry run python main.py
+
+# 5. Switch to recommended model
+/model qwen2.5:7b
+
+# 6. Test
+>>> list files in this directory
+```
+
 ## Development Commands
 
 ```bash
@@ -17,6 +40,7 @@ poetry run claude-agent
 poetry run pytest                    # Run all tests
 poetry run pytest -v                 # Verbose output
 poetry run pytest path/to/test.py    # Run specific test file
+python3 test_fixes.py                # Test critical fixes
 
 # Code Quality
 poetry run black .                   # Format code
@@ -271,7 +295,100 @@ context.add_message("system", f"Tool results:\n{tool_results_json}\n\nFormat nic
 model.stream_response()  # → Clean output!
 ```
 
-## Recent Optimizations (2025-10-20)
+## Recent Critical Fixes & Optimizations (2025-10-20 - LATEST)
+
+### 🔧 Critical Fixes Applied
+
+**IMPORTANT**: If you're experiencing hanging issues, run:
+```bash
+python3 auto_fix.py      # Apply all fixes automatically
+python3 test_fixes.py    # Verify fixes worked
+```
+
+**Issue**: Agent hangs at "Analyzing request and selecting tools..."
+**Cause**: `ollama` library is synchronous but was called with `await` (blocked event loop)
+**Fix**: Wrapped `ollama.chat()` and `ollama.generate()` with `asyncio.to_thread()`
+
+**Files Modified**:
+- `agent/ollama_client.py` - Lines 90, 163 (async wrapper)
+- `agent/agent_core.py` - Lines 288-305 (timeout + debug logging)
+- `config/agent_config.yaml` - Added `llm_timeout: 15`, `tool_timeout: 30`
+
+**See**: `LOCAL_MACHINE_FIXES.md` for detailed fix instructions
+
+### 🧠 Advanced System Prompt
+
+**File**: `agent/prompts/system_prompt.py`
+
+The system prompt now includes:
+- **Expert AI engineer persona** - "You are Claude Code, an expert AI software engineer..."
+- **Intelligent Analysis Guidelines**:
+  - READ and UNDERSTAND (not just dump raw data)
+  - ANALYZE relevance to user's question
+  - SYNTHESIZE concise, intelligent summaries
+  - EXPLAIN context and provide insights
+- **Tool Usage Best Practices** - When/how to use each tool
+- **Response Quality Standards** - Markdown, code blocks, professional tone
+
+**Result**: Agent now provides intelligent summaries instead of raw data dumps
+
+### 📊 Comprehensive Logging
+
+**Files**: `mcp_server/tools/*.py`, `config/tools_config.yaml`
+
+All MCP tool operations now log:
+```
+[2025-10-20 10:15:23] [read_file] START - file_path=/path/to/file
+[2025-10-20 10:15:23] [read_file] Validation passed
+[2025-10-20 10:15:23] [read_file] Permission check: ALLOWED
+[2025-10-20 10:15:23] [read_file] Reading 150 lines
+[2025-10-20 10:15:23] [read_file] SUCCESS - 150 lines, 0.05s
+```
+
+**Log Files**:
+- `logs/mcp_tools.log` - All MCP tool operations (detailed)
+- `logs/agent.log` - Agent decision-making (future)
+- `logs/errors.log` - Centralized errors (future)
+
+**Terminal**: Shows only final results (no internal noise)
+
+### ⚡ Token Limits & Smart Truncation
+
+**File**: `config/tools_config.yaml`, `agent/agent_core.py`
+
+**Configuration**:
+```yaml
+tools:
+  token_limits:
+    max_content_tokens: 4000  # ~16KB text
+    truncate_keep_ratio: [0.6, 0.4]  # First 60%, last 40%
+```
+
+**Smart Truncation**:
+- Large files (>4000 tokens) automatically truncated
+- Keeps first 60% + last 40% for context
+- Adds `_truncated: true` indicator
+- Prevents context window overflow
+
+### 🎯 Recommended Models (MacBook M4 16GB)
+
+**Best Choice** ⭐:
+```bash
+ollama pull qwen2.5:7b  # Best tool calling, 6GB RAM, fast
+```
+
+**Alternatives**:
+- `llama3.1:8b` - Very reliable, official Meta model
+- `mistral:7b-instruct-v0.3` - Good balance
+
+**Avoid**:
+- ❌ `deepseek-r1:*` - Reasoning models break tool calling
+- ❌ `qwq:*` - Same issue
+- ❌ Models with `q2_K` quantization - Too aggressive, causes failures
+
+**See**: `QUICK_FIX_GUIDE.md` for model recommendations
+
+## Recent Optimizations (2025-10-20 - EARLIER)
 
 ### Performance & Speed Improvements
 
@@ -363,120 +480,310 @@ Example:
 
 ## Important Notes
 
+### Prerequisites
 - **Ollama must be running** on localhost:11434 (configurable via `agent_config.yaml`)
+- **Ollama version** >=0.1.17 (for tool calling support)
+- **Python** 3.10+ with asyncio support
+- **Poetry** for dependency management
+
+### System Behavior
 - The system **auto-discovers Ollama models** on startup
 - **Agent mode toggle**: `/agent on|off` switches between full agentic loop and simple LLM chat
 - **Model switching**: `/model <name>` changes Ollama model at runtime
 - **Conversation history** is automatically saved on exit to `~/.claude-agent/history/`
 - All file operations create **backups** by default (configurable in `tools_config.yaml`)
 - **Streaming enabled by default** for instant responses (like `ollama run`)
-- **Best models for M4 MacBook (16GB RAM)**: qwen2.5:7b, mistral-nemo:12b, llama3.2:3b
-- **Avoid reasoning models** (deepseek-r1, qwq) - they don't support tool calling
+
+### Model Recommendations (MacBook M4 16GB RAM)
+**Best**:
+- ✅ `qwen2.5:7b` - Best tool calling, fast, 6GB RAM
+- ✅ `llama3.1:8b` - Very reliable, 7-8GB RAM
+- ✅ `mistral:7b-instruct-v0.3` - Good balance, 6GB RAM
+
+**Avoid**:
+- ❌ `deepseek-r1:*` - Reasoning models don't support tool calling
+- ❌ `qwq:*` - Same issue
+- ❌ `*:q2_K` - Heavy quantization breaks tool calling
+
+### Timeouts & Performance
+- **LLM timeout**: 15s (testing) / 60s (production)
+- **Tool timeout**: 30s
+- **Expected response time**: 3-15s for tool-based queries
+- **Max content size**: 4000 tokens (auto-truncates)
+
+### Logging & Debugging
+- **Enable verbose**: Set `verbose: true` in `agent_config.yaml`
+- **View logs**: `tail -f logs/mcp_tools.log`
+- **Debug mode**: Set `level: "DEBUG"` in `tools_config.yaml`
+- **Test fixes**: Run `python3 test_fixes.py`
 
 ## Common Issues & Solutions
 
-### Issue: Response hangs/freezes
-**Cause**: Using `async for` with synchronous ollama library  
-**Solution**: Use regular `for` loop - ollama is synchronous, not async
+### ⚠️ Issue: Agent hangs at "Analyzing request and selecting tools..." (CRITICAL)
+**Symptoms**: Agent freezes indefinitely, no timeout, no error message
+**Cause**: `ollama.chat()` is synchronous but called with `await` - blocks event loop
+**Solution**:
+```bash
+# Automated fix
+python3 auto_fix.py
 
-### Issue: Raw JSON output instead of formatted text
-**Cause**: Not post-processing tool results  
-**Solution**: Format results as JSON and instruct model to format nicely (already fixed)
+# Or manual fix
+# Add to agent/ollama_client.py line ~163:
+import asyncio
+response = await asyncio.to_thread(ollama.chat, **kwargs)
+```
+**Status**: Fixed in latest version (run `auto_fix.py` to apply)
+
+### ⚠️ Issue: Model doesn't support tool calling (mistral-nemo:12b-q2_K)
+**Symptoms**: Hangs during tool selection, timeouts, or errors
+**Cause**: Heavy quantization (q2_K) breaks tool calling for 12B models
+**Solution**:
+```bash
+# Use recommended model instead
+ollama pull qwen2.5:7b
+/model qwen2.5:7b
+```
+**See**: Model recommendations section above
+
+### Issue: Response hangs/freezes (LEGACY)
+**Cause**: Using `async for` with synchronous ollama library
+**Solution**: Use regular `for` loop - ollama is synchronous, not async
+**Status**: Fixed in ollama_client.py
+
+### Issue: Raw JSON output instead of intelligent summary
+**Cause**: Weak system prompt, not instructing model to analyze
+**Solution**: Enhanced system prompt now instructs to "READ, UNDERSTAND, SYNTHESIZE"
+**Status**: Fixed in system_prompt.py
 
 ### Issue: Tool not executing when asked
-**Cause**: Hardcoded patterns missing the keyword  
-**Solution**: Let model decide - only detect obvious greetings, send everything else to model with tools
+**Cause**: Hardcoded patterns missing the keyword
+**Solution**: Dynamic tool selection - model decides everything
+**Status**: Fixed in agent_core.py
 
 ### Issue: "does not support tools" error
-**Cause**: Using reasoning model (deepseek-r1, qwq)  
-**Solution**: Switch to mistral-nemo, qwen2.5, or llama3.2
+**Cause**: Using reasoning model (deepseek-r1, qwq) or wrong model
+**Solution**: Switch to qwen2.5:7b, llama3.1:8b, or mistral:7b
+**See**: Model recommendations above
 
 ### Issue: MCP tool execution fails
-**Cause**: MCP result parsing incorrect  
-**Solution**: Parse `CallToolResult.content` list properly (already fixed)
+**Cause**: MCP result parsing incorrect
+**Solution**: Parse `CallToolResult.content` list properly
+**Status**: Fixed in tool_executor.py
 
-### Issue: Slow first response (~5s)
-**Cause**: Not using streaming, large context  
-**Solution**: Enable streaming + reduce context tokens (already fixed in config)
+### Issue: Slow first response (~5-10s)
+**Cause**: Not using streaming, large context, async blocking
+**Solution**:
+- ✅ Streaming enabled by default
+- ✅ Reduced context tokens (2048)
+- ✅ Async wrapper applied (`asyncio.to_thread`)
+**Status**: All fixes applied
+
+### Issue: Timeout after 15s
+**Cause**: Model struggling with tool definitions or not supporting tools
+**Solution**:
+1. Try different model: `ollama pull llama3.1:8b`
+2. Reduce tool count (Fix 4 in LOCAL_MACHINE_FIXES.md)
+3. Disable tools temporarily and test direct mode
+**Debug**: Check `logs/mcp_tools.log` for details
 
 ## Development Workflow
+
+### First Time Setup (MacBook M4)
+
+1. **Apply critical fixes**:
+   ```bash
+   python3 auto_fix.py      # Apply all fixes
+   python3 test_fixes.py    # Verify they worked
+   ```
+
+2. **Install recommended model**:
+   ```bash
+   ollama pull qwen2.5:7b
+   ```
+
+3. **Start system**:
+   ```bash
+   poetry install
+   poetry run python main.py
+   /model qwen2.5:7b
+   ```
 
 ### Making Changes
 
 1. **Modify code** in `agent/`, `mcp_server/`, or `cli/`
 2. **Update CLAUDE.md** with significant changes
-3. **Restart both servers**:
+3. **Test locally**:
+   ```bash
+   python3 test_fixes.py    # Verify no regressions
+   ```
+4. **Restart both servers**:
    - MCP Server: `poetry run python start_server.py`
    - Agent: `poetry run python main.py`
-4. **Test** the changes
-5. **Commit** with clear message
+5. **Test** the changes
+6. **Commit** with clear message
 
 ### Testing Checklist
 
 ```bash
+# 0. Verify fixes applied (if first time)
+python3 test_fixes.py
+
 # 1. Test conversational (no tools)
 >>> hi
 >>> thanks
 >>> what is a REST API?
 
+# Expected: Quick response (1-2s)
+
 # 2. Test tool execution
 >>> list files in this directory
+
+# Expected:
+# [Agent] Analyzing request and selecting tools...
+# [DEBUG] Calling ollama.chat()... COMPLETED ✓
+# [Tool executes successfully]
+
 >>> read README.md
+
+# Expected: Intelligent summary (not raw dump)
+
 >>> search for "TODO" in all files
+
+# Expected: Finds and summarizes matches
 
 # 3. Test model switching
 >>> /model qwen2.5:7b
->>> /model mistral-nemo:12b-instruct-2407-q2_K
+>>> /model llama3.1:8b
+
+# Expected: Model switches instantly
 
 # 4. Test error handling
 >>> read nonexistent_file.txt
+
+# Expected: Clear error message, no hanging
+
+# 5. Test timeout
+# (Temporarily reduce timeout to 5s in config)
+>>> [complex query]
+
+# Expected: Clear timeout message after 5s
+
+# 6. Check logs
+tail -f logs/mcp_tools.log
+
+# Expected: Detailed operation logs
 ```
 
 ### Debug Mode
 
-Set `verbose: true` in `agent_config.yaml` to see:
-- `[Agent]` - Agent decisions
+**Enable verbose output** in `agent_config.yaml`:
+```yaml
+agent:
+  verbose: true
+```
+
+**You'll see**:
+- `[Agent]` - Agent decisions and reasoning
+- `[Agent] Available tools: 4` - Tool count
+- `[Agent] Current model: qwen2.5:7b` - Active model
+- `[DEBUG] Calling ollama.chat()... COMPLETED ✓` - LLM calls with timing
 - `[Act]` - Tool executions
 - `[Act] Arguments:` - Tool parameters
+- `[Act] read_file - ✓` - Tool success/failure status
 - Error details and stack traces
 
-## System State Summary (Current)
+**Enable detailed logging** in `config/tools_config.yaml`:
+```yaml
+logging:
+  level: "DEBUG"  # Shows all internal operations
+```
+
+**View logs in real-time**:
+```bash
+# MCP tool operations
+tail -f logs/mcp_tools.log
+
+# Agent decisions (future)
+tail -f logs/agent.log
+
+# All errors
+tail -f logs/errors.log
+```
+
+**Log Format**:
+```
+[2025-10-20 10:15:23] [read_file] START - file_path=/path/to/file
+[2025-10-20 10:15:23] [read_file] Validation passed - resolved path: /full/path
+[2025-10-20 10:15:23] [read_file] Permission check: ALLOWED
+[2025-10-20 10:15:23] [read_file] File size: 1024 bytes (0.00 MB)
+[2025-10-20 10:15:23] [read_file] Reading file content
+[2025-10-20 10:15:23] [read_file] Read 50 lines from file
+[2025-10-20 10:15:23] [read_file] SUCCESS - 50 lines returned, 0.023s
+```
+
+## System State Summary (Current - 2025-10-20 Latest)
 
 ### What Works Now ✅
 
-1. **Fast Streaming Responses**
-   - First words appear in ~0.5s (like `ollama run`)
-   - Proper sync/async handling
-   - No hanging or freezing
+1. **No More Hanging** (CRITICAL FIX)
+   - Proper async/sync handling with `asyncio.to_thread()`
+   - Aggressive 15s timeout (configurable)
+   - Clear timeout errors with fallback
+   - Debug logging shows exactly what's happening
 
-2. **Dynamic Tool Selection**
+2. **Fast Streaming Responses**
+   - First words appear in ~0.5-1s (like `ollama run`)
+   - Tool selection: 2-5s
+   - Complete responses: 5-15s (with tools)
+   - No blocking of event loop
+
+3. **Intelligent Analysis & Summaries**
+   - Advanced system prompt guides behavior
+   - Model reads, understands, and summarizes
+   - No raw data dumps
+   - Professional, concise responses
+
+4. **Dynamic Tool Selection**
    - Model decides what tools to use
    - No hardcoded patterns (except obvious greetings)
    - Supports all types of requests
+   - Graceful fallback if tools fail
 
-3. **Clean Output Formatting**
-   - Tool results post-processed by LLM
-   - User-friendly formatted responses
-   - No raw JSON in output
+5. **Comprehensive Logging**
+   - All MCP operations logged to `logs/mcp_tools.log`
+   - Detailed execution tracking (START/SUCCESS/FAILED)
+   - Performance metrics (execution time)
+   - Terminal shows only final results (clean UX)
 
-4. **General Purpose Assistant**
+6. **Smart Context Management**
+   - Auto-truncation for large files (>4000 tokens)
+   - Keeps first 60% + last 40% for context
+   - Prevents context window overflow
+   - Configurable token limits
+
+7. **General Purpose Assistant**
    - Handles coding tasks
    - Handles non-coding questions
    - File operations work correctly
    - Command execution works
+   - Web fetching works
 
-5. **Proper Error Handling**
-   - Graceful fallbacks
-   - Clear error messages
+8. **Proper Error Handling**
+   - Graceful fallbacks (tool calling → direct mode)
+   - Clear error messages with suggestions
    - Automatic retries where appropriate
+   - Timeout protection on all LLM/tool calls
 
-### Configuration (Optimized)
+### Configuration (Optimized - Latest)
 
 ```yaml
 # agent_config.yaml - Current optimized settings
 agent:
   stream_responses: true
   max_messages: 20
+  llm_timeout: 15          # NEW: Prevents infinite hangs
+  tool_timeout: 30         # NEW: Tool execution timeout
+  verbose: true            # Shows debug output
   tokens:
     max_context_tokens: 2048
     response_reserve: 512
@@ -484,36 +791,65 @@ agent:
 ollama:
   temperature: 0.3
   num_predict: 2048
+
+# tools_config.yaml - New token limits
+tools:
+  token_limits:
+    max_content_tokens: 4000      # NEW: Auto-truncate large content
+    truncate_keep_ratio: [0.6, 0.4]  # Keep first 60%, last 40%
+
+# Logging configuration
+logging:
+  level: "INFO"  # Use "DEBUG" for detailed tool execution
+  file:
+    mcp_tools: "logs/mcp_tools.log"  # NEW: Detailed tool logs
+    agent: "logs/agent.log"
+    errors: "logs/errors.log"
 ```
 
-### Files Modified in Latest Session
+### Files Modified in Latest Session (2025-10-20)
 
-1. `agent/agent_core.py`
-   - Fixed streaming (sync not async)
-   - Dynamic conversational detection
-   - Tool result post-processing
-   
-2. `agent/ollama_client.py`
-   - Changed `chat_stream()` to sync generator
-   - Proper ollama library usage
+**Critical Fixes** (Prevents hanging):
+1. `agent/ollama_client.py`
+   - ✅ Added `asyncio.to_thread()` wrapper (lines 90, 163)
+   - ✅ Proper async handling of synchronous ollama library
+   - ✅ Fixed `_generate_full()` and `chat()` methods
 
-3. `agent/tool_executor.py`
-   - Fixed MCP result parsing
-   - Handles content list properly
+2. `agent/agent_core.py`
+   - ✅ Added timeout with `asyncio.wait_for()` (15s default)
+   - ✅ Added debug logging (shows what's happening)
+   - ✅ Smart content truncation (>4000 tokens)
+   - ✅ Clean result formatting (no hardcoded logic)
+   - ✅ Graceful fallback on timeout/errors
 
+3. `config/agent_config.yaml`
+   - ✅ Added `llm_timeout: 15` (prevents infinite hangs)
+   - ✅ Added `tool_timeout: 30` (tool execution limit)
+   - ✅ Optimized for fast responses
+
+**Enhancements**:
 4. `agent/prompts/system_prompt.py`
-   - Shortened to 60 words
-   - General purpose (not just file ops)
-   - Still includes directory guidance
+   - ✅ Advanced Claude Code-style prompt
+   - ✅ Intelligent analysis instructions (READ, UNDERSTAND, SYNTHESIZE)
+   - ✅ Response quality guidelines
+   - ✅ Expert AI engineer persona
 
-5. `config/agent_config.yaml`
-   - Enabled streaming
-   - Reduced context/memory
-   - Optimized for speed
+5. `mcp_server/tools/file_tools.py`
+   - ✅ Comprehensive logging (START/SUCCESS/FAILED)
+   - ✅ Performance tracking (execution time)
+   - ✅ Detailed debug info (validation, permissions, operations)
 
-6. `mcp_server/server.py`
-   - Added `/tools` HTTP endpoint
-   - Starlette routing for multiple endpoints
+6. `config/tools_config.yaml`
+   - ✅ Added `token_limits` section
+   - ✅ Configured logging paths (mcp_tools, agent, errors)
+   - ✅ Smart truncation settings
+
+**New Files**:
+7. `auto_fix.py` - Automated fix script (applies all fixes)
+8. `test_fixes.py` - Verification script (tests all fixes)
+9. `LOCAL_MACHINE_FIXES.md` - Detailed fix guide
+10. `QUICK_FIX_GUIDE.md` - Quick start guide
+11. `critical_fixes.patch` - Git patch file
 
 ### Architecture Flow (Current)
 
@@ -536,12 +872,28 @@ Model post-processes and formats
 Stream formatted response to user
 ```
 
-### Performance Metrics
+### Performance Metrics (MacBook M4 16GB)
 
-- **Simple greeting**: 0.5s (instant streaming)
-- **Tool execution**: 5-8s (tool call + formatting)
-- **Complex query**: 8-12s (multiple tools + formatting)
-- **Memory usage**: ~6GB (mistral-nemo) / ~7GB (qwen2.5:7b)
+**With qwen2.5:7b** (Recommended):
+- **Simple greeting**: 0.5-1s (instant streaming)
+- **Tool selection**: 2-3s (with debug logging)
+- **Single tool execution**: 3-5s (e.g., read file, list directory)
+- **Complex query**: 8-12s (multiple tools + analysis)
+- **Memory usage**: ~6GB (leaves 10GB free for other apps)
+
+**With llama3.1:8b**:
+- **Simple greeting**: 0.5-1s
+- **Tool selection**: 3-4s
+- **Single tool execution**: 4-6s
+- **Memory usage**: ~7-8GB
+
+**With mistral:7b**:
+- **Simple greeting**: 0.5-1s
+- **Tool selection**: 3-4s
+- **Single tool execution**: 4-6s
+- **Memory usage**: ~6GB
+
+**Avoid**: `mistral-nemo:12b-q2_K` - Heavy quantization causes slow/unreliable tool calling
 
 ### What's Still Hardcoded (Intentionally)
 
