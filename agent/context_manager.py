@@ -95,7 +95,7 @@ class ContextManager:
         return [
             {"role": msg["role"], "content": msg["content"]}
             for msg in self.messages
-            if msg["role"] in ["user", "assistant", "system"]
+            if msg["role"] in ["user", "assistant", "system", "tool"]
         ]
 
     def clear(self) -> None:

@@ -6,6 +6,20 @@ All notable changes to the Claude Agent System project.
 
 ### 🔧 Critical Fixes
 
+#### **FIX 4: Tool Results Not Reaching Model (CRITICAL)**
+- **Issue**: Tool executes successfully but model asks user to paste content manually
+- **Root Cause**: `context_manager.py` filters out messages with `role="tool"` when sending to LLM
+- **Symptoms**:
+  - Logs show `[read_file] SUCCESS - 905 lines returned`
+  - But agent responds: "Please copy and paste the content..."
+  - Tool works, but model never sees the results
+- **Fix**: Added `"tool"` to allowed roles in `get_messages_for_llm()` method
+- **Files Modified**:
+  - `agent/context_manager.py` (line 98)
+  - Changed: `if msg["role"] in ["user", "assistant", "system"]`
+  - To: `if msg["role"] in ["user", "assistant", "system", "tool"]`
+- **Impact**: Tool results now properly reach the model → Agent can actually use tool outputs!
+
 #### Fixed Agent Hanging Issue
 - **Issue**: Agent would hang indefinitely at "Analyzing request and selecting tools..."
 - **Root Cause**: `ollama` Python library is synchronous, but was being called with `await`, blocking the event loop

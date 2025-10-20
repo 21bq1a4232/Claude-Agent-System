@@ -258,11 +258,58 @@ def fix_config():
     return True
 
 
+def fix_context_manager():
+    """Fix 4: Allow 'tool' role messages in context_manager.py"""
+    file_path = "agent/context_manager.py"
+
+    print(f"\n📝 Fixing {file_path}...")
+
+    # Create backup
+    backup_path = create_backup(file_path)
+    print(f"   ✓ Backup created: {backup_path}")
+
+    with open(file_path, "r") as f:
+        content = f.read()
+
+    # Check if already fixed
+    if '"tool"' in content and 'if msg["role"] in ["user", "assistant", "system", "tool"]' in content:
+        print(f"   ⊙ Already fixed ('tool' role already included)")
+        return True
+
+    # Fix: Add "tool" to allowed roles
+    old_code = '''        return [
+            {"role": msg["role"], "content": msg["content"]}
+            for msg in self.messages
+            if msg["role"] in ["user", "assistant", "system"]
+        ]'''
+
+    new_code = '''        return [
+            {"role": msg["role"], "content": msg["content"]}
+            for msg in self.messages
+            if msg["role"] in ["user", "assistant", "system", "tool"]
+        ]'''
+
+    if old_code in content:
+        content = content.replace(old_code, new_code)
+    else:
+        print(f"   ⚠ Warning: Could not find exact pattern to replace")
+        print(f"   Manual fix may be needed - add 'tool' to allowed roles in get_messages_for_llm()")
+        return False
+
+    # Write updated content
+    with open(file_path, "w") as f:
+        f.write(content)
+
+    print(f"   ✓ Fixed: Added 'tool' role to allowed messages")
+    return True
+
+
 def verify_files_exist():
     """Verify required files exist."""
     required_files = [
         "agent/ollama_client.py",
         "agent/agent_core.py",
+        "agent/context_manager.py",
         "config/agent_config.yaml",
     ]
 
@@ -299,6 +346,7 @@ def main():
         ("Async Wrapper (ollama_client.py)", fix_ollama_client),
         ("Timeout & Debug Logging (agent_core.py)", fix_agent_core),
         ("Config Timeout (agent_config.yaml)", fix_config),
+        ("Tool Role Messages (context_manager.py)", fix_context_manager),
     ]
 
     results = []
