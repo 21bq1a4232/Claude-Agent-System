@@ -269,8 +269,36 @@ class MCPServer:
 
     def get_asgi_app(self):
         """Get the ASGI application for the MCP server."""
+        from starlette.applications import Starlette
+        from starlette.routing import Route, Mount
+        from starlette.responses import JSONResponse
+        
+        async def list_tools_endpoint(request):
+            """HTTP endpoint to list available tools."""
+            try:
+                # Get tool names from FastMCP
+                tool_names = list(self.mcp._tool_manager._tools.keys())
+                return JSONResponse({
+                    "success": True,
+                    "tools": tool_names,
+                    "count": len(tool_names)
+                })
+            except Exception as e:
+                return JSONResponse({
+                    "success": False,
+                    "error": str(e)
+                }, status_code=500)
+        
         # Get the SSE app from FastMCP
-        app = self.mcp.sse_app()
+        sse_app = self.mcp.sse_app()
+        
+        # Create a Starlette app with both SSE and HTTP endpoints
+        routes = [
+            Route("/tools", list_tools_endpoint, methods=["GET"]),
+            Mount("/", app=sse_app),
+        ]
+        
+        app = Starlette(routes=routes)
         return app
 
     def run_server(self, host: str = "0.0.0.0", port: int = 8000):

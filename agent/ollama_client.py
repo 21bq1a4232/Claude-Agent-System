@@ -43,7 +43,7 @@ class OllamaClient:
         system: Optional[str] = None,
         temperature: Optional[float] = None,
         stream: bool = False,
-    ) -> str | AsyncIterator[str]:
+    ) -> Dict[str, Any] | AsyncIterator[str]:
         """
         Generate text from Ollama model.
 
@@ -80,7 +80,7 @@ class OllamaClient:
         prompt: str,
         system: Optional[str],
         options: Dict[str, Any],
-    ) -> str:
+    ) -> Dict[str, Any]:
         """Generate full response (non-streaming)."""
         try:
             response = ollama.generate(
@@ -89,9 +89,12 @@ class OllamaClient:
                 system=system,
                 options=options,
             )
-            return response.get("response", "")
+            if isinstance(response, dict):
+                return response
+            else:
+                return {"response": str(response)}
         except Exception as e:
-            return f"Error generating response: {str(e)}"
+            return {"error": str(e)}
 
     async def _generate_stream(
         self,
@@ -165,6 +168,49 @@ class OllamaClient:
                 },
                 "error": True,
             }
+
+    def chat_stream(
+        self,
+        messages: List[Dict[str, str]],
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+    ):
+        """
+        Chat with Ollama model using streaming for faster responses.
+        Note: ollama library is synchronous, so this is a regular generator.
+
+        Args:
+            messages: List of chat messages
+            model: Model name
+            temperature: Temperature for generation
+
+        Yields:
+            Text chunks as they arrive
+        """
+        model = model or self.current_model
+        temperature = temperature if temperature is not None else self.config.get("temperature", 0.7)
+
+        options = {
+            "temperature": temperature,
+            "top_p": self.config.get("top_p", 0.9),
+        }
+
+        try:
+            stream = ollama.chat(
+                model=model,
+                messages=messages,
+                options=options,
+                stream=True,
+            )
+
+            for chunk in stream:
+                if "message" in chunk:
+                    content = chunk["message"].get("content", "")
+                    if content:
+                        yield content
+
+        except Exception as e:
+            yield f"Error in streaming chat: {str(e)}"
 
     def list_models(self) -> List[str]:
         """List available Ollama models dynamically from Ollama API."""

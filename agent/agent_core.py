@@ -35,6 +35,9 @@ class AgentCore:
         self.enabled = self.agent_config.get("enabled", True)
         self.verbose = self.agent_config.get("verbose", True)
         self.max_steps = self.agent_config.get("max_steps", 10)
+        
+        # Cache for available tools (fetched dynamically)
+        self._available_tools_cache: Optional[List[str]] = None
 
         # Add system message
         system_prompt = get_system_prompt("main")
@@ -61,72 +64,335 @@ class AgentCore:
         return await self._agentic_loop(user_message)
 
     async def _direct_response(self, user_message: str) -> str:
-        """Generate direct response without agentic loop."""
+        """Generate direct response without agentic loop (with streaming)."""
         messages = self.context.get_messages_for_llm()
-        response = await self.ollama.chat(messages)
+        
+        # Use streaming for faster perceived response
+        if self.agent_config.get("stream_responses", True):
+            full_response = ""
+            # chat_stream() is a synchronous generator (ollama lib is sync)
+            for chunk in self.ollama.chat_stream(messages):
+                print(chunk, end="", flush=True)
+                full_response += chunk
+            print()  # New line after streaming
+            
+            self.context.add_message("assistant", full_response)
+            return full_response
+        else:
+            # Non-streaming fallback
+            response = await self.ollama.chat(messages)
+            assistant_message = response.get("message", {}).get("content", "")
+            self.context.add_message("assistant", assistant_message)
+            return assistant_message
 
-        assistant_message = response.get("message", {}).get("content", "")
-        self.context.add_message("assistant", assistant_message)
+    def _is_conversational(self, message: str) -> bool:
+        """
+        Check if message is conversational (doesn't need tools).
+        Uses simple heuristics - let the LLM decide for ambiguous cases.
+        
+        Args:
+            message: User's message
+            
+        Returns:
+            True if obviously conversational, False if might need tools
+        """
+        message_lower = message.lower().strip()
+        
+        # Very simple greetings and responses (no tool needed)
+        simple_greetings = ["hi", "hello", "hey", "thanks", "thank you", "bye", "yes", "no", "ok", "okay"]
+        
+        # If it's just a greeting, it's conversational
+        if message_lower in simple_greetings:
+            return True
+        
+        # If message starts with greeting and is very short
+        for greeting in simple_greetings:
+            if message_lower.startswith(greeting) and len(message_lower.split()) <= 2:
+                return True
+        
+        # Everything else - let the LLM and tools handle it
+        # The model will decide if tools are needed
+        return False
 
-        return assistant_message
+    async def _get_tools_for_ollama(self) -> List[Dict[str, Any]]:
+        """
+        Get tools in Ollama tool calling format.
+        
+        Returns:
+            List of tool definitions for Ollama
+        """
+        available_tools = await self._get_available_tools()
+        
+        # Ensure we have a valid list
+        if not available_tools:
+            if self.verbose:
+                print("[Agent] Warning: No tools available, using fallback set")
+            available_tools = ["read_file", "write_file", "list_directory", "bash", "grep", "glob"]
+        
+        # Convert to Ollama format (simplified - Ollama uses function calling format)
+        ollama_tools = []
+        
+        # Tool parameter definitions (optimized for Claude Code-like behavior)
+        tool_definitions = {
+            "read_file": {
+                "description": "Read contents of a file. Use the exact file path provided by the user.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string", 
+                            "description": "Path to the file to read (e.g., 'main.py', './config/settings.yaml')"
+                        },
+                        "offset": {
+                            "type": "integer", 
+                            "description": "Optional: Line number to start reading from (1-indexed)"
+                        },
+                        "limit": {
+                            "type": "integer", 
+                            "description": "Optional: Maximum number of lines to read"
+                        }
+                    },
+                    "required": ["file_path"]
+                }
+            },
+            "write_file": {
+                "description": "Write content to a file. Creates the file if it doesn't exist.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string", 
+                            "description": "Path to the file to write (e.g., 'output.txt')"
+                        },
+                        "content": {
+                            "type": "string", 
+                            "description": "Content to write to the file"
+                        }
+                    },
+                    "required": ["file_path", "content"]
+                }
+            },
+            "list_directory": {
+                "description": "List files and directories. IMPORTANT: Use '.' for current directory, not 'home' or other names.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "directory": {
+                            "type": "string", 
+                            "description": "Directory path. Use '.' for current/this directory, '..' for parent, or specify a path like './src'"
+                        },
+                        "pattern": {
+                            "type": "string", 
+                            "description": "Optional: Glob pattern to filter results (e.g., '*.py', '*.txt')"
+                        }
+                    },
+                    "required": ["directory"]
+                }
+            },
+            "bash": {
+                "description": "Execute a shell command in the current directory",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": {
+                            "type": "string", 
+                            "description": "Shell command to execute (e.g., 'ls -la', 'pwd', 'git status')"
+                        }
+                    },
+                    "required": ["command"]
+                }
+            },
+            "grep": {
+                "description": "Search for text patterns in files (like ripgrep). Use '.' to search in current directory.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "pattern": {
+                            "type": "string", 
+                            "description": "Text pattern to search for"
+                        },
+                        "path": {
+                            "type": "string", 
+                            "description": "Path to search in. Use '.' for current directory (default: '.')"
+                        }
+                    },
+                    "required": ["pattern"]
+                }
+            },
+            "glob": {
+                "description": "Find files matching a pattern. Use '.' to search from current directory.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "pattern": {
+                            "type": "string",
+                            "description": "Glob pattern (e.g., '**/*.py' for all Python files, '*.txt' for text files)"
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "Base directory to search from. Use '.' for current directory (default: '.')"
+                        }
+                    },
+                    "required": ["pattern"]
+                }
+            },
+            "edit_file": {
+                "description": "Edit a file by replacing text. Use for making changes to existing files.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "Path to the file to edit"
+                        },
+                        "old_string": {
+                            "type": "string",
+                            "description": "Exact text to find and replace"
+                        },
+                        "new_string": {
+                            "type": "string",
+                            "description": "New text to replace with"
+                        }
+                    },
+                    "required": ["file_path", "old_string", "new_string"]
+                }
+            }
+        }
+        
+        for tool_name in available_tools:
+            if tool_name in tool_definitions:
+                ollama_tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": tool_name,
+                        "description": tool_definitions[tool_name]["description"],
+                        "parameters": tool_definitions[tool_name]["parameters"]
+                    }
+                })
+        
+        return ollama_tools
 
     async def _agentic_loop(self, user_message: str) -> str:
-        """Execute agentic loop (simplified for direct tool execution)."""
-        step = 0
-        final_response = ""
-
-        while step < self.max_steps:
-            step += 1
-
-            # Phase 1: Think (optional - usually disabled to prevent hallucinations)
-            if self.loop_config.get("phases", {}).get("think", {}).get("enabled", False):
-                thought = await self._think(user_message, step)
+        """Execute agentic loop with native Ollama tool calling (optimized)."""
+        # Check if message is conversational
+        if self._is_conversational(user_message):
+            if self.verbose:
+                print("\n[Agent] Conversational message detected, responding directly")
+            return await self._direct_response(user_message)
+        
+        try:
+            # Use native Ollama tool calling for single LLM call
+            # Get available tools in Ollama format
+            tools = await self._get_tools_for_ollama()
+            
+            # Make single chat call with tools
+            messages = self.context.get_messages_for_llm()
+            response = await self.ollama.chat(messages, tools=tools if tools else None)
+            
+            # Check for errors in response
+            if response.get("error"):
+                error_msg = response.get("message", {}).get("content", str(response.get("error")))
                 if self.verbose:
-                    print(f"\n[Think] {thought}")
-
-            # Phase 2: Plan (optional - usually disabled for direct execution)
-            plan = None
-            if self.loop_config.get("phases", {}).get("plan", {}).get("enabled", False):
-                plan = await self._plan(user_message, step)
+                    print(f"\n[Agent] Error from model: {error_msg}")
+                # Fall back to direct response if tool calling not supported
+                return await self._direct_response(user_message)
+            
+            message = response.get("message", {})
+            
+            # Check if model wants to use tools
+            tool_calls = message.get("tool_calls", [])
+            
+            # Ensure tool_calls is iterable
+            if tool_calls is None:
+                tool_calls = []
+            
+            if tool_calls and self.verbose:
+                print(f"\n[Agent] Model requested {len(tool_calls)} tool call(s)")
+            
+            # Execute any tool calls
+            tool_results = []
+            for tool_call in tool_calls:
+                function = tool_call.get("function", {})
+                tool_name = function.get("name")
+                arguments = function.get("arguments", {})
+                
                 if self.verbose:
-                    print(f"\n[Plan] {plan}")
-
-                # Check if we have a complete plan
-                if "no further action needed" in plan.lower() or "task complete" in plan.lower():
+                    print(f"\n[Act] Executing: {tool_name}")
+                    print(f"[Act] Arguments: {arguments}")
+                
+                try:
+                    result = await self.tool_executor.execute_tool(tool_name, arguments)
+                    tool_results.append({
+                        "tool": tool_name,
+                        "result": result,
+                        "success": result.get("success", False)
+                    })
+                    
+                    if self.verbose:
+                        status = "✓" if result.get("success") else "✗"
+                        print(f"[Act] {tool_name} - {status}")
+                        if not result.get("success"):
+                            err = result.get("error", "Unknown error")
+                            print(f"[Act] Error: {err}")
+                            
+                except Exception as e:
+                    tool_results.append({
+                        "tool": tool_name,
+                        "result": None,
+                        "success": False,
+                        "error": str(e)
+                    })
+                    if self.verbose:
+                        print(f"[Act] {tool_name} - ✗ (Exception: {e})")
+            
+            # If tools were called, add tool results to context and get final response
+            if tool_results:
+                # Format tool results properly for the model to process
+                tool_results_formatted = []
+                for r in tool_results:
+                    tool_info = {
+                        "tool": r['tool'],
+                        "success": r['success'],
+                    }
+                    if r['success']:
+                        # Include the actual result data
+                        tool_info["data"] = r.get('result', {})
+                    else:
+                        tool_info["error"] = r.get('error', 'Unknown error')
+                    tool_results_formatted.append(tool_info)
+                
+                # Add tool results to context in a structured way
+                import json
+                tool_results_json = json.dumps(tool_results_formatted, indent=2)
+                self.context.add_message("system", f"Tool execution completed. Here are the results:\n{tool_results_json}\n\nNow format this data in a clear, user-friendly way for the user.")
+                
+                if self.verbose:
+                    print(f"\n[Agent] Generating final response based on tool results...")
+                
+                # Get final response from model with streaming
+                if self.agent_config.get("stream_responses", True):
+                    print()  # New line before streaming
+                    final_response = ""
+                    # chat_stream() is a synchronous generator (ollama lib is sync)
+                    for chunk in self.ollama.chat_stream(self.context.get_messages_for_llm()):
+                        print(chunk, end="", flush=True)
+                        final_response += chunk
+                    print()  # New line after streaming
+                else:
                     final_response = await self._generate_final_response()
-                    break
-
-            # Phase 3: Act (core - directly determine and execute tool)
-            if self.loop_config.get("phases", {}).get("act", {}).get("enabled", True):
-                # If no plan, pass user message directly for tool selection
-                action_result = await self._act_direct(user_message) if not plan else await self._act(plan)
-                if self.verbose:
-                    action_summary = f"{action_result.get('action', 'unknown')} - {'✓' if action_result.get('success') else '✗'}"
-                    print(f"\n[Act] {action_summary}")
-
-            # Phase 4: Observe
-            if self.loop_config.get("phases", {}).get("observe", {}).get("enabled", True):
-                observation = await self._observe(action_result if 'action_result' in locals() else None)
-                if self.verbose and observation.get("error"):
-                    print(f"\n[Observe] Error: {observation.get('error')}")
-
-                # Check if task is complete (successful tool execution = done)
-                if observation.get("complete", False):
-                    final_response = await self._generate_final_response()
-                    break
-
-            # Phase 5: Reflect (optional - usually disabled for simpler operation)
-            if self.loop_config.get("phases", {}).get("reflect", {}).get("enabled", False):
-                reflection = await self._reflect(observation if 'observation' in locals() else None)
-                if self.verbose:
-                    print(f"\n[Reflect] {reflection}")
-
-        # Generate final response if not already done
-        if not final_response:
-            final_response = await self._generate_final_response()
-
-        self.context.add_message("assistant", final_response)
-        return final_response
+            else:
+                # No tools called, use model's direct response
+                final_response = message.get("content", "Task completed.")
+            
+            self.context.add_message("assistant", final_response)
+            return final_response
+            
+        except Exception as e:
+            # Catch any errors in the tool calling flow
+            if self.verbose:
+                print(f"\n[Agent] Error in agentic loop: {e}")
+            # Fall back to direct response
+            return await self._direct_response(user_message)
 
     async def _think(self, user_message: str, step: int) -> str:
         """Think phase - analyze the request."""
@@ -154,8 +420,34 @@ List the specific actions needed."""
         )
         return response
 
+    async def _get_available_tools(self) -> List[str]:
+        """
+        Get available tools from MCP server (with caching).
+        
+        Returns:
+            List of tool names
+        """
+        if self._available_tools_cache is None:
+            try:
+                self._available_tools_cache = await self.tool_executor.list_tools()
+            except Exception as e:
+                if self.verbose:
+                    print(f"[Agent] Warning: Could not fetch tools from MCP server: {e}")
+                # Fallback to basic set
+                self._available_tools_cache = [
+                    "read_file", "write_file", "edit_file", "list_directory",
+                    "grep", "glob", "bash", "web_fetch"
+                ]
+        return self._available_tools_cache
+
     async def _act_direct(self, user_request: str) -> Dict[str, Any]:
         """Act phase - directly determine and execute tool from user request."""
+        # Get available tools dynamically
+        available_tools = await self._get_available_tools()
+        
+        # Build tool descriptions
+        tool_list = "\n".join([f"- {tool}" for tool in available_tools])
+        
         # Direct, concise prompt for tool selection
         tool_selection_prompt = f"""User request: "{user_request}"
 
@@ -167,14 +459,7 @@ Choose the ONE most appropriate tool and respond ONLY with valid JSON (no extra 
 }}
 
 Available tools:
-- list_directory(directory=".", pattern=None) - List files in a directory
-- read_file(file_path, offset=None, limit=None) - Read file contents
-- write_file(file_path, content, create_backup=None) - Write to a file
-- edit_file(file_path, old_string, new_string, replace_all=False) - Edit a file
-- grep(pattern, path=".", case_insensitive=False, max_results=None) - Search in files
-- glob(pattern, path=".", max_results=None) - Find files by pattern
-- bash(command, timeout=None, cwd=None) - Execute shell command
-- web_fetch(url, timeout=None) - Fetch URL content
+{tool_list}
 
 Respond with JSON only."""
 
@@ -185,16 +470,26 @@ Respond with JSON only."""
                 temperature=0.1,  # Low temperature for more deterministic output
             )
 
-            # Parse JSON response
+            # Parse JSON response from Ollama
+            # generate() returns: {"response": "text"}
+            if isinstance(response, dict):
+                response_text = response.get("response", "")
+                if not response_text:
+                    # Fallback for chat() format: {"message": {"content": "text"}}
+                    response_text = response.get("message", {}).get("content", "")
+            else:
+                response_text = str(response)
+
+            # Extract JSON from response text
             import json
             import re
 
-            # Extract JSON from response
-            json_match = re.search(r'\{[\s\S]*?\}', response)
+            # Find JSON object in response
+            json_match = re.search(r'\{[\s\S]*?\}', response_text)
             if not json_match:
                 return {
                     "action": "parse_error",
-                    "result": f"No JSON found in response: {response[:200]}",
+                    "error": f"No JSON found in response: {response[:200]}",
                     "success": False,
                 }
 
@@ -205,7 +500,7 @@ Respond with JSON only."""
             if not tool_name:
                 return {
                     "action": "parse_error",
-                    "result": "No tool name in response",
+                    "error": "No tool name in response",
                     "success": False,
                 }
 
@@ -222,7 +517,7 @@ Respond with JSON only."""
         except Exception as e:
             return {
                 "action": "error",
-                "result": f"Failed to execute: {str(e)}",
+                "error": f"Failed to execute: {str(e)}",
                 "success": False,
             }
 
@@ -242,30 +537,30 @@ Respond with JSON only."""
             "role": "user",
             "content": f"""Based on this plan: {plan}
 
-Choose ONE tool to execute right now. Respond with a JSON object in this format:
-{{
-    "tool": "tool_name",
-    "arguments": {{
-        "param1": "value1",
-        "param2": "value2"
-    }},
-    "reasoning": "why this tool and these arguments"
-}}
+                Choose ONE tool to execute right now. Respond with a JSON object in this format:
+                {{
+                    "tool": "tool_name",
+                    "arguments": {{
+                        "param1": "value1",
+                        "param2": "value2"
+                    }},
+                    "reasoning": "why this tool and these arguments"
+                }}
 
-Available tools:
-- read_file(file_path, offset=None, limit=None)
-- write_file(file_path, content, create_backup=None)
-- edit_file(file_path, old_string, new_string, replace_all=False)
-- list_directory(directory=".", pattern=None)
-- grep(pattern, path=".", regex=False, case_insensitive=False, context_before=0, context_after=0, max_results=None, file_pattern=None)
-- glob(pattern, path=".", max_results=None)
-- find(name=None, path=".", file_type=None, max_depth=None)
-- bash(command, timeout=None, cwd=None, background=False)
-- web_fetch(url, timeout=None)
-- web_search(query, max_results=10)
+                Available tools:
+                - read_file(file_path, offset=None, limit=None)
+                - write_file(file_path, content, create_backup=None)
+                - edit_file(file_path, old_string, new_string, replace_all=False)
+                - list_directory(directory=".", pattern=None)
+                - grep(pattern, path=".", regex=False, case_insensitive=False, context_before=0, context_after=0, max_results=None, file_pattern=None)
+                - glob(pattern, path=".", max_results=None)
+                - find(name=None, path=".", file_type=None, max_depth=None)
+                - bash(command, timeout=None, cwd=None, background=False)
+                - web_fetch(url, timeout=None)
+                - web_search(query, max_results=10)
 
-Respond ONLY with the JSON object, no other text."""
-        })
+                Respond ONLY with the JSON object, no other text."""
+                        })
 
         # Get tool call from Ollama
         response = await self.ollama.chat(messages)
@@ -288,7 +583,7 @@ Respond ONLY with the JSON object, no other text."""
                 if not tool_name:
                     return {
                         "action": "parse_error",
-                        "result": "No tool name in response",
+                        "error": "No tool name in response",
                         "response": content,
                         "success": False,
                     }
@@ -312,7 +607,7 @@ Respond ONLY with the JSON object, no other text."""
             else:
                 return {
                     "action": "no_tool_call",
-                    "result": "No JSON tool call found in response",
+                    "error": "No JSON tool call found in response",
                     "response": content,
                     "success": False,
                 }
@@ -320,14 +615,14 @@ Respond ONLY with the JSON object, no other text."""
         except json.JSONDecodeError as e:
             return {
                 "action": "json_error",
-                "result": f"Failed to parse JSON: {str(e)}",
+                "error": f"Failed to parse JSON: {str(e)}",
                 "response": content,
                 "success": False,
             }
         except Exception as e:
             return {
                 "action": "error",
-                "result": f"Execution failed: {str(e)}",
+                "error": f"Execution failed: {str(e)}",
                 "success": False,
             }
 

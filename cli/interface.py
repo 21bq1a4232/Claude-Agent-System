@@ -100,13 +100,18 @@ class TerminalInterface:
             if self.agent.is_enabled() and self.config.get("show_thinking", True):
                 self.renderer.print_thinking("Processing your request...")
 
-            # Get response from agent
+            # Get response from agent (streaming happens inside)
             response = await self.agent.process_request(message)
-
-            # Display response
-            self.renderer.print_separator()
-            self.renderer.print_markdown(response)
-            self.renderer.print_separator()
+            
+            # Only print separator and markdown if response wasn't already streamed
+            # (Streaming prints directly, non-streaming returns full text)
+            if response and not self.agent.agent_config.get("stream_responses", True):
+                self.renderer.print_separator()
+                self.renderer.print_markdown(response)
+                self.renderer.print_separator()
+            elif response:
+                # Just add separator after streamed response
+                self.renderer.print_separator()
 
         except Exception as e:
             self.renderer.print_error(f"Error processing message: {e}")

@@ -25,13 +25,16 @@ agent:
 
   # Maximum number of reasoning steps before stopping
   max_steps: 10
+  
+  # Enable streaming for faster responses (like ollama run)
+  stream_responses: true
 
   # Token management
   tokens:
-    # Maximum tokens for context window
-    max_context_tokens: 4096
+    # Maximum tokens for context window (reduced for faster responses)
+    max_context_tokens: 2048
     # Reserve tokens for agent response
-    response_reserve: 1024
+    response_reserve: 512
     # Truncate strategy: "oldest" or "summarize"
     truncate_strategy: "oldest"
 
@@ -46,14 +49,14 @@ ollama:
   # Enable streaming responses
   stream: true
 
-  # Temperature for generation (0.0 = deterministic, 1.0 = creative)
-  temperature: 0.7
+  # Temperature for generation (lower = faster, more deterministic)
+  temperature: 0.3
 
-  # Top-p sampling
+  # Top-p sampling (lower = faster)
   top_p: 0.9
 
-  # Number of tokens to predict (-1 = infinite)
-  num_predict: -1
+  # Number of tokens to predict (limit for faster responses)
+  num_predict: 2048
 
 # Agentic loop configuration
 loop:
@@ -128,8 +131,8 @@ memory:
   # Enable conversation history
   enabled: true
 
-  # Maximum messages to keep in memory
-  max_messages: 100
+  # Maximum messages to keep in memory (reduced for faster responses)
+  max_messages: 20
 
   # Persist to file
   persist:
@@ -140,8 +143,8 @@ memory:
   # Enable session summarization
   summarize:
     enabled: true
-    threshold_messages: 50
-    keep_recent: 10
+    threshold_messages: 15
+    keep_recent: 5
 
 # Safety and guardrails
 safety:
